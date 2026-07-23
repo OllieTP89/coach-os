@@ -107,7 +107,7 @@ svg{display:block; width:100%; height:auto}
 .hero .u{font-size:14px; color:var(--ink-3)}
 .hero .to{font-size:13px; color:var(--ink-2)}
 .selrow{display:flex; gap:8px; margin-bottom:10px}
-.selrow select{flex:1; border:0.5px solid var(--border); background:var(--surface-1); color:var(--ink); font-size:13.5px; font-weight:600; border-radius:9px; padding:8px 10px; font-family:inherit}
+.selrow select{flex:1; border:0.5px solid var(--border); background:var(--surface-1); color:var(--ink); font-size:16px; font-weight:600; border-radius:9px; padding:8px 10px; font-family:inherit}
 .seg{display:flex; border:0.5px solid var(--border); border-radius:9px; overflow:hidden; flex:none}
 .seg button{border:none; background:var(--card); color:var(--ink-3); font-size:12px; padding:8px 11px; cursor:pointer; font-family:inherit}
 .seg button.on{background:var(--accent-soft); color:var(--accent); font-weight:600}
@@ -127,7 +127,7 @@ svg{display:block; width:100%; height:auto}
 .ex .scheme{font-size:12.5px; color:var(--ink-2)}
 .sets{display:flex; gap:6px; margin-top:8px; flex-wrap:wrap}
 .set{display:flex; align-items:center; gap:4px; background:var(--surface-1); border:0.5px solid var(--border); border-radius:9px; padding:6px 8px}
-.set input{width:44px; border:none; background:transparent; color:var(--ink); font-size:14px; font-weight:600; text-align:center; font-variant-numeric:tabular-nums; padding:0}
+.set input{width:48px; border:none; background:transparent; color:var(--ink); font-size:16px; font-weight:600; text-align:center; font-variant-numeric:tabular-nums; padding:0}
 .set input:focus{outline:none}
 .set .x{color:var(--ink-3); font-size:12px}
 .set.ok{border-color:var(--good); background:color-mix(in srgb, var(--good) 8%, transparent)}
@@ -143,7 +143,7 @@ button.ghost{border:0.5px solid var(--border); background:var(--card); color:var
 .chips{display:flex; gap:6px; overflow-x:auto; padding:2px 0 8px; -webkit-overflow-scrolling:touch}
 .chips button{flex:none}
 .inputbar{display:flex; gap:8px}
-.inputbar input{flex:1; border:0.5px solid var(--border); background:var(--card); border-radius:11px; padding:10px 12px; font-size:14px; color:var(--ink); min-width:0}
+.inputbar input{flex:1; border:0.5px solid var(--border); background:var(--card); border-radius:11px; padding:10px 12px; font-size:16px; color:var(--ink); min-width:0}
 .inputbar button{border:none; background:var(--accent); color:#fff; border-radius:11px; padding:0 16px; font-size:14px; font-weight:600; cursor:pointer}
 nav.tabbar{position:fixed; bottom:0; left:0; right:0; max-width:560px; margin:0 auto; display:flex;
   background:color-mix(in srgb, var(--card) 88%, transparent); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
@@ -184,7 +184,7 @@ nav.tabbar button.active{color:var(--accent)}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.0.2 · live data from intervals.icu · coach engine: Claude<br>refresh to update · charts &amp; commentary regenerate from actuals</div>
+  <div class="footer-note">Coach OS v1.0.3</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -227,11 +227,11 @@ function renderSetup(){
     <h2 style="color:var(--ink); font-size:15px">One-time setup</h2>
     <div style="font-size:13px; color:var(--ink-2); margin-bottom:12px">Paste your keys — they're saved on THIS device only and never sent anywhere except intervals.icu and Anthropic directly.</div>
     <div style="font-size:12px; color:var(--ink-3)">intervals.icu athlete ID (looks like i123456)</div>
-    <input id="su_a" style="width:100%; border:0.5px solid var(--border); background:var(--card); border-radius:9px; padding:10px 12px; font-size:14px; color:var(--ink); margin:4px 0 10px" placeholder="i…">
+    <input id="su_a" style="width:100%; border:0.5px solid var(--border); background:var(--card); border-radius:9px; padding:10px 12px; font-size:16px; color:var(--ink); margin:4px 0 10px" placeholder="i…">
     <div style="font-size:12px; color:var(--ink-3)">intervals.icu API key (Settings → Developer)</div>
-    <input id="su_i" style="width:100%; border:0.5px solid var(--border); background:var(--card); border-radius:9px; padding:10px 12px; font-size:14px; color:var(--ink); margin:4px 0 10px">
+    <input id="su_i" style="width:100%; border:0.5px solid var(--border); background:var(--card); border-radius:9px; padding:10px 12px; font-size:16px; color:var(--ink); margin:4px 0 10px">
     <div style="font-size:12px; color:var(--ink-3)">Anthropic API key (sk-ant-…)</div>
-    <input id="su_n" style="width:100%; border:0.5px solid var(--border); background:var(--card); border-radius:9px; padding:10px 12px; font-size:14px; color:var(--ink); margin:4px 0 12px">
+    <input id="su_n" style="width:100%; border:0.5px solid var(--border); background:var(--card); border-radius:9px; padding:10px 12px; font-size:16px; color:var(--ink); margin:4px 0 12px">
     <button class="primary" onclick="saveSetup()">Save & load my data</button>
     <div style="font-size:11px; color:var(--ink-3); margin-top:10px">After it loads, use Safari's Share → Add to Home Screen. Keys persist on-device; if the phone ever forgets them, this screen simply reappears.</div>
   </div>`;
@@ -407,7 +407,7 @@ function showTab(t){
   if(t==="today"&&S._mapPending)initMap();
 }
 function renderHeader(){
-  $("hdrsub").textContent=new Date().toLocaleDateString("en-US",{weekday:"long",day:"numeric",month:"long"})+" · data live";
+  $("hdrsub").textContent=new Date().toLocaleDateString("en-US",{weekday:"long",day:"numeric",month:"long"});
   const t=today();
   const blk=CFG.roadmap.find(b=>t>=b.from&&t<=b.to);
   $("hdrbadge").textContent=blk?(blk.n==="RACE"?"RACE DAY":blk.n+" · "+blk.w):"";
@@ -443,6 +443,8 @@ function renderToday(){
       <div class="metric"><div class="l">Weight</div><div class="v">${S.weight?S.weight.toFixed(1):"–"}<small> kg</small></div><div class="d">→ ${CFG.targets.weightGoal}</div></div>
     </div>
   </div>
+  ${cn?.j?.briefing?`<div class="card"><h2>Morning briefing <span class="when">${cn.date}</span></h2>
+    <div style="font-size:13.5px; color:var(--ink-2); white-space:pre-wrap; line-height:1.55">${cn.j.briefing}</div></div>`:""}
   ${act?`<div class="card">
     <h2>${actDay===today()?"Today":dayName(actDay)+" "+actDay.slice(8)} · ${esc(act.name)} <span class="when">${esc(act.type)} · done ✓</span></h2>
     ${planned?`<div class="rowline" style="margin-bottom:10px">
@@ -590,7 +592,7 @@ function renderPlan(){
   <div class="card"><h2>The season shape <span class="when">confirmed 22 Jul</span></h2>
     <div class="blocks">${blkHtml}</div>
     <div style="font-size:12px; color:var(--ink-2); margin-top:6px">Durability II starts after Sunday's race; FTP re-test in the W35 deload sets the build's zones. Strength runs continuously underneath.</div></div>
-  <div class="card"><h2>This week <span class="when">from the intervals calendar</span></h2>${dayHtml||'<div style="font-size:13px;color:var(--ink-3)">no planned workouts found this week</div>'}</div>
+  <div class="card"><h2>This week</h2>${dayHtml||'<div style="font-size:13px;color:var(--ink-3)">no planned workouts found this week</div>'}</div>
   <div class="card"><h2>Execution adherence <span class="when">last 28 days · did you do the workout as written?</span></h2>
     <div style="display:flex; height:10px; border-radius:99px; overflow:hidden; gap:2px">
       ${asWritten?`<i style="flex:${asWritten}; background:var(--good)"></i>`:""}${tooHard?`<i style="flex:${tooHard}; background:var(--crit)"></i>`:""}${missed?`<i style="flex:${missed}; background:var(--axis)"></i>`:""}</div>
@@ -791,7 +793,7 @@ async function saveGym(){
 function renderCoach(){
   const cn=coachNote();
   $("tab-coach").innerHTML=`
-  <div class="card" style="padding-bottom:10px"><h2>Coach <span class="when">live · knows today's data</span></h2>
+  <div class="card" style="padding-bottom:10px"><h2>Coach</h2>
     <div class="chat" id="chat">
       ${cn?`<div class="msg coach"><div class="who">Coach · daily note · ${cn.date}</div>${cn.j.headline?esc(cn.j.headline)+"\n\n":""}${cn.j.rest_of_day?cn.j.rest_of_day.replace(/<[^>]+>/g,""):""}</div>`:""}
     </div>
@@ -799,7 +801,7 @@ function renderCoach(){
       ${["How was my last ride?","What's the plan today?","Race day plan","Log a meal","Hip check-in"].map(q=>`<button class="ghost" onclick="askCoach('${q}')">${q}</button>`).join("")}
     </div>
     <div class="inputbar"><input id="chatinput" placeholder="Message your coach…" onkeydown="if(event.key==='Enter')sendChat()"><button onclick="sendChat()">Send</button></div>
-    <div style="font-size:10.5px; color:var(--ink-3); margin-top:8px">Replies are live (Claude, your API key — costs ~a cent). Big reprogramming → Claude app Coach project. Conversations are logged so Coach sees them at the next briefing.</div></div>`;
+</div>`;
 }
 function addMsg(text,who){
   const c=$("chat");const d=document.createElement("div");
