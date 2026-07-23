@@ -184,7 +184,7 @@ nav.tabbar button.active{color:var(--accent)}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.0.3</div>
+  <div class="footer-note">Coach OS v1.0.4</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -699,46 +699,103 @@ function renderFood(){
   const logs=foodNotes(t);
   const tot=logs.reduce((a,n)=>{const e=n.j.est||{};return{kcal:a.kcal+(e.kcal||0),p:a.p+(e.p||0),c:a.c+(e.c||0),f:a.f+(e.f||0),fib:a.fib+(e.fib||0)}},{kcal:0,p:0,c:0,f:0,fib:0});
   const evToday=S.events.filter(e=>e.category==="WORKOUT"&&e.start_date_local?.slice(0,10)===t);
-  const hardDay=evToday.some(e=>(e.icu_training_load||0)>60);
-  const kcalTgt=hardDay?CFG.targets.kcal.hard:evToday.length?CFG.targets.kcal.moderate:CFG.targets.kcal.easy;
+  const actsToday=S.acts.filter(a=>a.start_date_local?.slice(0,10)===t);
+  const doneKJ=actsToday.reduce((s,a)=>s+((a.icu_joules||((a.icu_training_load||0)*9000))/1000),0);
+  const planKJ=evToday.filter(e=>e.type!=="Yoga").reduce((s,e)=>s+((e.icu_training_load||0)*9),0);
+  const burn=Math.round((2450+Math.max(doneKJ,planKJ))/50)*50;
+  const kcalTgt=(coachNote()?.j?.kcal_target)||Math.max(2200,Math.round((burn-400)/50)*50);
   const bar=(label,val,tgt2,unit,color)=>`<div class="macro"><div class="top"><b>${label}</b><span>${Math.round(val)} / ${tgt2} ${unit}</span></div>
     <div class="bar"><i style="width:${Math.min(100,Math.round(100*val/tgt2))}%; background:${color}"></i></div></div>`;
   const hist=[...Array(10)].map((_,i)=>{const d=addDays(t,-9+i);const ls=foodNotes(d);
-    return{d,kcal:ls.reduce((a,n)=>a+(n.j.est?.kcal||0),0),p:ls.reduce((a,n)=>a+(n.j.est?.p||0),0)}});
+    const kj=S.acts.filter(a=>a.start_date_local?.slice(0,10)===d).reduce((s,a)=>s+((a.icu_joules||((a.icu_training_load||0)*9000))/1000),0);
+    const db=Math.round((2450+kj)/50)*50;
+    return{d,kcal:Math.round(ls.reduce((a,n)=>a+(n.j.est?.kcal||0),0)),burn:db,target:Math.max(2200,Math.round((db-400)/50)*50)}});
+  const logged=hist.filter(h=>h.kcal>0);
+  const netDef=logged.reduce((s,h)=>s+(h.kcal-h.burn),0);
   $("tab-food").innerHTML=`
-  <div class="card"><h2>Today <span class="when">${hardDay?"hard day · fuel it":evToday.length?"moderate day":"easy day"} · target ${kcalTgt.toLocaleString()} kcal</span></h2>
-    <div class="inputbar" style="margin-bottom:10px"><input id="foodinput" placeholder="What did you eat? Rough words fine…" onkeydown="if(event.key==='Enter')logFood()"><button onclick="logFood()">Log</button></div>
+  <div class="card"><h2>Today <span class="when">target ${kcalTgt.toLocaleString()} kcal · est burn ${burn.toLocaleString()}</span></h2>
+    <div class="inputbar" style="margin-bottom:10px"><input id="foodinput" placeholder="Log or amend — 'actually 3 burgers', 'remove the sardines'" onkeydown="if(event.key==='Enter')logFood()"><button class="ghost" style="flex:none" onclick="document.getElementById('foodphoto').click()">Photo</button><button onclick="logFood()">Log</button></div>
+    <input type="file" id="foodphoto" accept="image/*" style="display:none" onchange="photoFood(this)">
     <div id="foodbusy"></div>
-    ${logs.length?`<div style="font-size:12.5px;color:var(--ink-2);margin-bottom:8px">${logs.map(n=>`• ${esc(n.j.raw||"")} <span style="color:var(--ink-3)">(${n.j.est?Math.round(n.j.est.kcal)+" kcal · "+Math.round(n.j.est.p)+"g P":"coach will tally"})</span>`).join("<br>")}</div>`:`<div style="font-size:13px;color:var(--ink-3);margin-bottom:8px">Nothing logged yet today.</div>`}
     ${bar("Calories",tot.kcal,kcalTgt,"kcal","var(--accent)")}
     ${bar("Protein",tot.p,CFG.targets.protein,"g","var(--z5)")}
-    ${bar("Carbs",tot.c,hardDay?330:230,"g","var(--z4)")}
+    ${bar("Carbs",tot.c,burn>2900?330:230,"g","var(--z4)")}
     ${bar("Fat",tot.f,CFG.targets.fatHigh,"g","var(--z3)")}
     ${bar("Fibre",tot.fib,CFG.targets.fibre,"g","var(--z2)")}
+    ${logs.length?`<details style="margin-top:6px"><summary style="font-size:12.5px; color:var(--ink-3); cursor:pointer">Review today's log (${logs.length} entries)</summary>
+      <div style="margin-top:8px">${logs.map(n=>`<div class="rowline" style="padding:6px 0; border-bottom:0.5px solid var(--border)">
+        <div style="font-size:12.5px; color:var(--ink-2); min-width:0">${esc(n.j.raw||"")}<div style="color:var(--ink-3); font-size:11px">${n.j.est?Math.round(n.j.est.kcal)+" kcal · "+Math.round(n.j.est.p)+"g P · "+Math.round(n.j.est.c)+"g C · "+Math.round(n.j.est.f)+"g F":"coach will tally"}</div></div>
+        <button class="ghost" style="padding:4px 10px; font-size:13px; flex:none" onclick="deleteFood(${n.id})" aria-label="remove entry">✕</button>
+      </div>`).join("")}</div></details>`:`<div style="font-size:12.5px;color:var(--ink-3);margin-top:6px">Nothing logged yet today.</div>`}
   </div>
-  <div class="card"><h2>Last 10 days <span class="when">logged kcal &amp; protein</span></h2>
-    <div class="chart-wrap"><svg viewBox="0 0 320 110" role="img" aria-label="Nutrition logging, last 10 days">
-    ${hist.map((h,i)=>{const x=10+i*30.4,w2=24;
-      if(!h.kcal)return`<rect x="${x}" y="84" width="${w2}" height="4" rx="2" fill="var(--axis)" opacity="0.6"/><text x="${x+w2/2}" y="103" text-anchor="middle" font-size="9" fill="var(--ink-3)">${+h.d.slice(8)}</text>`;
-      const hh=(h.kcal/3000)*76,ph=(h.p/220)*76;
-      return`<rect x="${x}" y="${88-hh}" width="${w2*0.6}" height="${hh}" rx="3" fill="var(--accent)"/><rect x="${x+w2*0.64}" y="${88-ph}" width="${w2*0.36}" height="${ph}" rx="2" fill="var(--z5)"/><text x="${x+w2/2}" y="103" text-anchor="middle" font-size="9" fill="var(--ink-3)">${+h.d.slice(8)}</text>`}).join("")}</svg></div>
-    <div class="legend"><span><i style="background:var(--accent)"></i>kcal</span><span><i style="background:var(--z5)"></i>protein</span><span><i style="background:var(--axis)"></i>not logged</span></div>
+  <div class="card"><h2>Last 10 days <span class="when">intake vs target vs burn</span></h2>
+    <div class="rowline" style="margin-bottom:8px">
+      <span style="font-size:13px; color:var(--ink-2)">Rolling deficit, logged days (${logged.length})</span>
+      <span style="font-size:15px; font-weight:600; color:${netDef<0?"var(--good-text)":"var(--crit)"}">${netDef<0?"−":"+"}${Math.abs(netDef).toLocaleString()} kcal <span style="font-weight:400; font-size:11.5px; color:var(--ink-3)">≈ ${(netDef/7700).toFixed(2)} kg</span></span>
+    </div>
+    <div class="chart-wrap"><svg viewBox="0 0 320 132" role="img" aria-label="Daily intake bars versus estimated burn and target, last 10 days">
+    ${hist.map((h,i)=>{const x=10+i*30.4,w2=24,H0=104,SC=3800;
+      const bh=(h.burn/SC)*H0, th=(h.target/SC)*H0, kh=(h.kcal/SC)*H0;
+      let out=`<rect x="${x}" y="${(108-bh).toFixed(1)}" width="${w2}" height="${bh.toFixed(1)}" rx="3" fill="var(--axis)" opacity="0.3"/>`;
+      out+=`<line x1="${x}" y1="${(108-th).toFixed(1)}" x2="${x+w2}" y2="${(108-th).toFixed(1)}" stroke="var(--ink-2)" stroke-width="1.2" stroke-dasharray="3 2"/>`;
+      if(h.kcal)out+=`<rect x="${x+4}" y="${(108-kh).toFixed(1)}" width="${w2-8}" height="${kh.toFixed(1)}" rx="2.5" fill="${h.kcal>h.burn?"var(--crit)":"var(--accent)"}"/>`;
+      out+=`<text x="${x+w2/2}" y="123" text-anchor="middle" font-size="9" fill="var(--ink-3)">${+h.d.slice(8)}</text>`;
+      return out}).join("")}</svg></div>
+    <div class="legend"><span><i style="background:var(--accent)"></i>intake</span><span><i style="background:var(--axis); opacity:0.5"></i>est burn</span><span><i style="background:var(--ink-2); height:2px; border-radius:0"></i>target</span><span><i style="background:var(--crit)"></i>over burn</span></div>
     ${coachNote()?.j?.food_read?`<div class="coach-note">${coachNote().j.food_read}<span class="dyn">↻ Coach · ${coachNote().date}</span></div>`:""}</div>`;
 }
 async function logFood(){
   const inp=$("foodinput");const raw=inp.value.trim();if(!raw)return;
-  inp.value="";$("foodbusy").innerHTML='<div style="font-size:12px;color:var(--ink-3);margin-bottom:8px"><span class="spin"></span>saving…</div>';
-  let ev=null;
-  try{ev=await writeNote("COS·food",{raw,est:null,ts:Date.now()});}
-  catch(e){$("foodbusy").innerHTML="";toast("Couldn't save: "+e.message);inp.value=raw;return}
-  renderFood();toast("Logged — tallying macros…");
+  inp.value="";$("foodbusy").innerHTML='<div style="font-size:12px;color:var(--ink-3);margin-bottom:8px"><span class="spin"></span>working…</div>';
+  const entries=foodNotes(today()).map(n=>({id:n.id,raw:n.j.raw,est:n.j.est}));
+  let act=null;
   try{
-    const r=await coachAI([{role:"user",content:`Estimate macros for this food, JSON ONLY, no prose: {"kcal":n,"p":n,"c":n,"f":n,"fib":n}. Food: ${raw}`}],200,{light:true});
-    const est=JSON.parse(r.match(/\{[^}]+\}/)[0]);
-    await ic("/athlete/"+CFG.athlete+"/events/"+ev.id,{method:"PUT",body:JSON.stringify({description:JSON.stringify({raw,est,ts:Date.now()})})});
-    const cached=S.events.find(x=>x.id===ev.id);if(cached)cached.description=JSON.stringify({raw,est,ts:Date.now()});
-    parseNotes();renderFood();toast(`Tallied · ${Math.round(est.kcal)} kcal, ${Math.round(est.p)}g protein`);
-  }catch(_){toast("Saved — coach will tally macros at the next briefing")}
+    const r=await coachAI([{role:"user",content:`Today's food log: ${JSON.stringify(entries)}\nUser says: "${raw}"\nReply JSON ONLY. Adding food: {"action":"add","raw":"<cleaned item text>","est":{"kcal":n,"p":n,"c":n,"f":n,"fib":n}}. Correcting an existing entry (re-estimate the WHOLE corrected entry): {"action":"update","id":<id>,"raw":"<corrected text>","est":{...}}. Removing an entry: {"action":"delete","id":<id>}.`}],350,{light:true});
+    act=JSON.parse(r.match(/\{[\s\S]*\}/)[0]);
+  }catch(_){}
+  try{
+    if(act&&act.action==="update"&&act.id){
+      const body=JSON.stringify({raw:act.raw,est:act.est,ts:Date.now()});
+      await ic("/athlete/"+CFG.athlete+"/events/"+act.id,{method:"PUT",body:JSON.stringify({description:body})});
+      const c=S.events.find(x=>x.id===act.id);if(c)c.description=body;
+      parseNotes();renderFood();toast("Updated · "+Math.round(act.est.kcal)+" kcal");
+    }else if(act&&act.action==="delete"&&act.id){
+      await deleteFood(act.id,true);toast("Entry removed");
+    }else{
+      const est=(act&&act.est)||null;
+      await writeNote("COS·food",{raw:(act&&act.raw)||raw,est,ts:Date.now()});
+      renderFood();toast(est?`Logged · ${Math.round(est.kcal)} kcal, ${Math.round(est.p)}g protein`:"Logged — coach will tally");
+    }
+    $("foodbusy").innerHTML="";
+  }catch(e){$("foodbusy").innerHTML="";toast("Couldn't save: "+e.message);inp.value=raw}
+}
+async function deleteFood(id,quiet){
+  try{
+    await ic("/athlete/"+CFG.athlete+"/events/"+id,{method:"DELETE"});
+    S.events=S.events.filter(x=>x.id!==id);parseNotes();renderFood();
+    if(!quiet)toast("Entry removed");
+  }catch(e){toast("Couldn't remove: "+e.message)}
+}
+async function photoFood(input){
+  const f=input.files&&input.files[0];input.value="";if(!f)return;
+  $("foodbusy").innerHTML='<div style="font-size:12px;color:var(--ink-3);margin-bottom:8px"><span class="spin"></span>reading photo…</div>';
+  try{
+    const b64=await new Promise((res,rej)=>{
+      const img=new Image();const fr=new FileReader();
+      fr.onload=()=>{img.onload=()=>{
+        const c=document.createElement("canvas");const sc=Math.min(1,1024/Math.max(img.width,img.height));
+        c.width=Math.round(img.width*sc);c.height=Math.round(img.height*sc);
+        c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+        res(c.toDataURL("image/jpeg",0.8).split(",")[1]);};img.onerror=rej;img.src=fr.result;};
+      fr.onerror=rej;fr.readAsDataURL(f);});
+    const r=await coachAI([{role:"user",content:[
+      {type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},
+      {type:"text",text:'Identify this food and estimate macros for the visible portion. JSON ONLY: {"desc":"<short item list>","est":{"kcal":n,"p":n,"c":n,"f":n,"fib":n}}'}]}],350,{light:true});
+    const j=JSON.parse(r.match(/\{[\s\S]*\}/)[0]);
+    await writeNote("COS·food",{raw:"[photo] "+j.desc,est:j.est,ts:Date.now()});
+    renderFood();toast(`Logged · ${Math.round(j.est.kcal)} kcal, ${Math.round(j.est.p)}g protein`);
+    $("foodbusy").innerHTML="";
+  }catch(e){$("foodbusy").innerHTML="";toast("Photo failed: "+e.message)}
 }
 /* ═══ GYM ═══ */
 const GYM_TEMPLATE=[
