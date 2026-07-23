@@ -188,7 +188,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.0.8</div>
+  <div class="footer-note">Coach OS v1.0.9</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -253,6 +253,7 @@ function saveSetup(){
 const S={wellness:[],acts:[],events:[],athlete:null,pcurve:null,notes:[],chat:[],detail:null,ftp:CFG.ftpFallback,weight:CFG.weightFallback,pz:[]};
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const md=t=>esc(t).replace(/\*\*([^*]+)\*\*/g,"<b>$1</b>");
 const fmtT=s=>{s=Math.round(s||0);const h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;return h?`${h}:${String(m).padStart(2,"0")}:${String(ss).padStart(2,"0")}`:`${m}:${String(ss).padStart(2,"0")}`};
 const today=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};
 const addDays=(d,n)=>{const x=new Date(d+"T12:00:00");x.setDate(x.getDate()+n);return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0")};
@@ -294,7 +295,7 @@ const COACH_TOOLS=[
  {name:"delete_workout",description:"Remove a planned workout. Get the athlete's conversational OK before deleting.",input_schema:{type:"object",properties:{id:{type:"number"}},required:["id"]}},
  {name:"set_kcal_target",description:"Set today's calorie target (shown and tracked in the Food tab).",input_schema:{type:"object",properties:{kcal:{type:"number"},reason:{type:"string"}},required:["kcal"]}},
  {name:"get_activities",description:"List completed activities in a date range (last 60 days available) with full summary stats. Use to find activity ids and compare sessions.",input_schema:{type:"object",properties:{oldest:{type:"string",description:"YYYY-MM-DD"},newest:{type:"string",description:"YYYY-MM-DD"}},required:[]}},
- {name:"get_activity_streams",description:"Deep-dive an activity: second-by-second power/HR/speed, returned as time bins plus computed highlights (best 5s/1m/5m/20m efforts, time in zone, HR drift halves, surge time above 150% FTP). Use for detailed ride analysis.",input_schema:{type:"object",properties:{id:{type:"string",description:"activity id from get_activities or LIVE DATA"}},required:["id"]}}
+ {name:"get_activity_streams",description:"Deep-dive an activity. Default: binned overview of the whole ride plus highlights computed at FULL 1-second resolution (best 5s/1m/5m/20m, max W, time in zone, HR drift, surge seconds >150% FTP). With start_second/end_second: RAW per-second watts+HR for that window (max 6 min) — use this to dissect sprint/attack anatomy after locating it in the overview.",input_schema:{type:"object",properties:{id:{type:"string",description:"activity id from get_activities or LIVE DATA"},start_second:{type:"number"},end_second:{type:"number"}},required:["id"]}}
 ];
 async function runTool(tu){
   const a=tu.input||{};
@@ -334,6 +335,14 @@ async function runTool(tu){
       const wts=g("watts").map(x=>x==null?0:x),hr=g("heartrate").map(x=>x==null?0:x);
       if(!wts.length)return "no power stream recorded for this activity";
       const tot=wts.length;
+      if(a.start_second!=null||a.end_second!=null){
+        let s0=Math.max(0,Math.floor(a.start_second||0)),s1=Math.min(tot,Math.ceil(a.end_second||tot));
+        if(s1-s0>360)s1=s0+360;
+        const w=wts.slice(s0,s1),h=hr.slice(s0,s1);
+        return JSON.stringify({window_seconds:[s0,s1],resolution:"1s",ftp:S.ftp,
+          max_W:Math.max(...w),avg_W:Math.round(w.reduce((x,y)=>x+y,0)/w.length),
+          watts_per_second:w,hr_per_second:h});
+      }
       const best=dur=>{if(tot<dur)return null;let s=0;for(let i=0;i<dur;i++)s+=wts[i];let mx=s;for(let i=dur;i<tot;i++){s+=wts[i]-wts[i-dur];if(s>mx)mx=s}return Math.round(mx/dur)};
       const z=[0,0,0,0,0,0,0];wts.forEach(x=>{z[powerZone(x)-1]++});
       const res=Math.max(10,Math.ceil(tot/70/10)*10);
@@ -351,24 +360,32 @@ async function runTool(tu){
     return "unknown tool";
   }catch(e){return "ERROR: "+e.message}
 }
+const TOOL_STATUS={create_workout:"writing the workout…",update_workout:"updating the plan…",delete_workout:"removing the workout…",set_kcal_target:"adjusting your target…",get_activities:"pulling your sessions…",get_activity_streams:"reading the ride data…"};
 async function coachChat(holder){
   let msgs=S.chat.slice(-12);
-  for(let i=0;i<6;i++){
-    const d=await coachAIRaw(msgs,1500,{tools:COACH_TOOLS});
+  let acc="";
+  for(let i=0;i<9;i++){
+    const d=await coachAIRaw(msgs,2800,{tools:COACH_TOOLS});
     const txts=(d.content||[]).filter(c=>c.type==="text").map(c=>c.text||"").join("").trim();
     const tus=(d.content||[]).filter(c=>c.type==="tool_use");
+    if(!tus.length&&d.stop_reason==="max_tokens"){
+      acc+=(acc&&txts?"\n":"")+txts;
+      holder.innerHTML='<div class="who">Coach</div><span class="spin"></span>continuing…';
+      msgs=[...msgs,{role:"assistant",content:d.content},{role:"user",content:"Continue exactly where you left off, mid-sentence if needed."}];
+      continue;
+    }
     if(!tus.length){
-      if(txts)return txts;
+      if(txts||acc)return (acc?acc+(txts?"\n":""):"")+txts;
       msgs=[...msgs,{role:"assistant",content:d.content},{role:"user",content:"Give your answer now as plain text."}];
       continue;
     }
-    holder.innerHTML='<div class="who">Coach</div><span class="spin"></span>'+esc(txts||"adjusting the plan…");
+    holder.innerHTML='<div class="who">Coach</div><span class="spin"></span>'+esc(TOOL_STATUS[tus[0].name]||txts||"working…");
     msgs=[...msgs,{role:"assistant",content:d.content}];
     const results=[];
     for(const tu of tus)results.push({type:"tool_result",tool_use_id:tu.id,content:await runTool(tu)});
     msgs=[...msgs,{role:"user",content:results}];
   }
-  return "Made the changes — check the Plan tab.";
+  return acc||"Done — check the Plan tab for changes.";
 }
 async function refreshData(){
   try{const t=today();
@@ -983,7 +1000,7 @@ function renderCoach(){
 function addMsg(text,who,cid){
   const c=$(cid||"chat");const d=document.createElement("div");
   d.className="msg "+who;
-  d.innerHTML=`<div class="who" ${who==='me'?'style="color:rgba(255,255,255,.75)"':''}>${who==="me"?"You":"Coach"}</div>${esc(text)}`;
+  d.innerHTML=`<div class="who" ${who==='me'?'style="color:rgba(255,255,255,.75)"':''}>${who==="me"?"You":"Coach"}</div>${who==="coach"?md(text):esc(text)}`;
   c.appendChild(d);d.scrollIntoView({behavior:"smooth",block:"end"});return d;
 }
 function askCoach(q){showTab("coach");$("chatinput").value=q;sendChat()}
@@ -1000,7 +1017,7 @@ async function chatSend(inp,cid,prefix){
   try{
     S._dirty=false;
     const a=await coachChat(holder);
-    holder.innerHTML=`<div class="who">Coach</div>${esc(a)}`;
+    holder.innerHTML=`<div class="who">Coach</div>${md(a)}`;
     S.chat.push({role:"assistant",content:a});
     try{writeNote("COS·chat",{q:prefix+q,a:String(a).slice(0,600),ts:Date.now()}).catch(()=>{})}catch(_){}
     if(S._dirty){refreshData();}
