@@ -160,6 +160,10 @@ nav.tabbar button.active{color:var(--accent)}
 .wrow .wt .n1{font-size:13.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 .wrow .wt .n2{font-size:11.5px; color:var(--ink-3)}
 .footer-note{font-size:11px; color:var(--ink-3); text-align:center; padding:10px 20px 4px}
+#tab-coach.active{display:flex; flex-direction:column; min-height:calc(100dvh - 150px)}
+#tab-coach .card{display:flex; flex-direction:column; flex:1}
+#tab-coach .chat{flex:1; max-height:none; min-height:180px}
+body.kb nav.tabbar{display:none}
 #loading{padding:40px 20px; text-align:center; color:var(--ink-3); font-size:14px}
 #errbanner{display:none; background:color-mix(in srgb, var(--crit) 12%, transparent); color:var(--crit); font-size:12.5px; padding:8px 14px; border-radius:10px; margin:0 12px 10px}
 .spin{display:inline-block; width:14px; height:14px; border:2px solid var(--axis); border-top-color:var(--accent); border-radius:50%; animation:sp 0.8s linear infinite; vertical-align:-2px; margin-right:6px}
@@ -184,7 +188,7 @@ nav.tabbar button.active{color:var(--accent)}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.0.7</div>
+  <div class="footer-note">Coach OS v1.0.8</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -349,11 +353,15 @@ async function runTool(tu){
 }
 async function coachChat(holder){
   let msgs=S.chat.slice(-12);
-  for(let i=0;i<5;i++){
-    const d=await coachAIRaw(msgs,900,{tools:COACH_TOOLS});
+  for(let i=0;i<6;i++){
+    const d=await coachAIRaw(msgs,1500,{tools:COACH_TOOLS});
     const txts=(d.content||[]).filter(c=>c.type==="text").map(c=>c.text||"").join("").trim();
     const tus=(d.content||[]).filter(c=>c.type==="tool_use");
-    if(!tus.length)return txts||"Done.";
+    if(!tus.length){
+      if(txts)return txts;
+      msgs=[...msgs,{role:"assistant",content:d.content},{role:"user",content:"Give your answer now as plain text."}];
+      continue;
+    }
     holder.innerHTML='<div class="who">Coach</div><span class="spin"></span>'+esc(txts||"adjusting the plan…");
     msgs=[...msgs,{role:"assistant",content:d.content}];
     const results=[];
@@ -490,6 +498,8 @@ const TABS=[["today","Today",'<circle cx="12" cy="12" r="4"/><path d="M12 2v3M12
  ["coach","Coach",'<path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z"/>']];
 $("tabbar").innerHTML=TABS.map(([id,l,ic],i)=>`<button data-t="${id}" aria-label="${l}"><svg viewBox="0 0 24 24" aria-hidden="true">${ic}</svg>${l}</button>`).join("");
 $("tabbar").addEventListener("click",e=>{const b=e.target.closest("button");if(b)showTab(b.dataset.t)});
+document.addEventListener("focusin",e=>{if(e.target.closest&&e.target.closest(".inputbar"))document.body.classList.add("kb")});
+document.addEventListener("focusout",()=>{setTimeout(()=>{if(!document.activeElement||!document.activeElement.closest||!document.activeElement.closest(".inputbar"))document.body.classList.remove("kb")},250)});
 function showTab(t){
   document.querySelectorAll("nav.tabbar button").forEach(x=>x.classList.toggle("active",x.dataset.t===t));
   document.querySelectorAll("section.tab").forEach(s=>s.classList.toggle("active",s.id==="tab-"+t));
@@ -634,7 +644,17 @@ async function openDetail(id){
     </div>
     <div id="dstreams" style="margin-top:10px"><span class="spin"></span><span style="font-size:12px;color:var(--ink-3)">loading streams…</span></div>
     <div class="zonebar" id="dzonebar"></div><div class="legend" id="dzonelegend"></div>
-    <div class="linkrow"><a href="https://intervals.icu/activities/${a.id}">intervals ↗</a><a href="https://www.strava.com/dashboard">Strava ↗</a></div></div>`;
+    <div class="linkrow"><a href="https://intervals.icu/activities/${a.id}">intervals ↗</a><a href="https://www.strava.com/dashboard">Strava ↗</a></div>
+    <div style="margin-top:14px; border-top:0.5px solid var(--border); padding-top:12px">
+      <h2>Ask coach about this session</h2>
+      <div class="chat" id="dchat" style="max-height:45vh"></div>
+      <div class="chips">
+        <button class="ghost" onclick="askDetail('${a.id}','Analyse my pacing in this session')">Pacing</button>
+        <button class="ghost" onclick="askDetail('${a.id}','How did the efforts in this session compare to what was planned?')">Vs plan</button>
+        <button class="ghost" onclick="askDetail('${a.id}','What is the key takeaway from this session?')">Takeaway</button>
+      </div>
+      <div class="inputbar"><input id="dchatinput" placeholder="Ask about this session…" onkeydown="if(event.key==='Enter')sendDetailChat('${a.id}')"><button onclick="sendDetailChat('${a.id}')">Send</button></div>
+    </div></div>`;
   try{
     const st=await ic("/activity/"+id+"/streams?types=watts,heartrate,velocity_smooth");
     const g=t=>((st.find(s=>s.type===t)||{}).data||[]);
@@ -960,25 +980,30 @@ function renderCoach(){
     <div class="inputbar"><input id="chatinput" placeholder="Message your coach…" onkeydown="if(event.key==='Enter')sendChat()"><button onclick="sendChat()">Send</button></div>
 </div>`;
 }
-function addMsg(text,who){
-  const c=$("chat");const d=document.createElement("div");
+function addMsg(text,who,cid){
+  const c=$(cid||"chat");const d=document.createElement("div");
   d.className="msg "+who;
   d.innerHTML=`<div class="who" ${who==='me'?'style="color:rgba(255,255,255,.75)"':''}>${who==="me"?"You":"Coach"}</div>${esc(text)}`;
   c.appendChild(d);d.scrollIntoView({behavior:"smooth",block:"end"});return d;
 }
 function askCoach(q){showTab("coach");$("chatinput").value=q;sendChat()}
-async function sendChat(){
-  const inp=$("chatinput");const q=inp.value.trim();if(!q)return;
-  inp.value="";addMsg(q,"me");S.chat.push({role:"user",content:q});
-  const holder=addMsg("…","coach");
+async function sendChat(){return chatSend($("chatinput"),"chat","")}
+function askDetail(id,q){$("dchatinput").value=q;sendDetailChat(id)}
+async function sendDetailChat(id){
+  const a=S.acts.find(x=>String(x.id)===String(id));
+  return chatSend($("dchatinput"),"dchat",a?`(About activity id ${a.id}: "${a.name}" on ${a.start_date_local.slice(0,10)} — use get_activity_streams for the detail) `:"");
+}
+async function chatSend(inp,cid,prefix){
+  const q=inp.value.trim();if(!q)return;
+  inp.value="";addMsg(q,"me",cid);S.chat.push({role:"user",content:prefix+q});
+  const holder=addMsg("…","coach",cid);
   try{
-    const dirtyBefore=S._dirty;S._dirty=false;
+    S._dirty=false;
     const a=await coachChat(holder);
     holder.innerHTML=`<div class="who">Coach</div>${esc(a)}`;
     S.chat.push({role:"assistant",content:a});
-    try{writeNote("COS·chat",{q,a:String(a).slice(0,600),ts:Date.now()}).catch(()=>{})}catch(_){}
+    try{writeNote("COS·chat",{q:prefix+q,a:String(a).slice(0,600),ts:Date.now()}).catch(()=>{})}catch(_){}
     if(S._dirty){refreshData();}
-    S._dirty=S._dirty||dirtyBefore;
   }catch(e){holder.innerHTML=`<div class="who">Coach</div>Couldn't reach the coach engine (${esc(e.message)}). Check connection, or open the Claude app.`}
 }
 /* ═══ GO ═══ */
