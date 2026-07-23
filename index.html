@@ -268,9 +268,11 @@ async function coachAI(messages,maxTokens=500){
     "x-api-key":CFG.anthKey,"anthropic-version":"2023-06-01","content-type":"application/json",
     "anthropic-dangerous-direct-browser-access":"true"},
     body:JSON.stringify({model:CFG.anthModel,max_tokens:maxTokens,system:CFG.brief+"\n\nLIVE DATA:\n"+liveContext(),messages})});
-  if(!r.ok)throw new Error("coach api "+r.status);
-  const d=await r.json();
-  return d.content[0].text;
+  const d=await r.json().catch(()=>null);
+  if(!r.ok||!d||d.type==="error")throw new Error((d&&d.error&&d.error.message)||("coach api "+r.status));
+  const txt=(d.content||[]).filter(c=>c.type==="text").map(c=>c.text||"").join("").trim();
+  if(!txt)throw new Error("empty reply ("+(d.stop_reason||"?")+")");
+  return txt;
 }
 function liveContext(){
   const w=S.wellness[S.wellness.length-1]||{};
@@ -719,14 +721,18 @@ function renderFood(){
 }
 async function logFood(){
   const inp=$("foodinput");const raw=inp.value.trim();if(!raw)return;
-  inp.value="";$("foodbusy").innerHTML='<div style="font-size:12px;color:var(--ink-3);margin-bottom:8px"><span class="spin"></span>logging + tallying macros…</div>';
+  inp.value="";$("foodbusy").innerHTML='<div style="font-size:12px;color:var(--ink-3);margin-bottom:8px"><span class="spin"></span>saving…</div>';
+  let ev=null;
+  try{ev=await writeNote("COS·food",{raw,est:null,ts:Date.now()});}
+  catch(e){$("foodbusy").innerHTML="";toast("Couldn't save: "+e.message);inp.value=raw;return}
+  renderFood();toast("Logged — tallying macros…");
   try{
-    let est=null;
-    try{const r=await coachAI([{role:"user",content:`Estimate macros for this food, JSON ONLY, no prose: {"kcal":n,"p":n,"c":n,"f":n,"fib":n}. Food: ${raw}`}],120);
-      est=JSON.parse(r.match(/\{[^}]+\}/)[0]);}catch(_){}
-    await writeNote("COS·food",{raw,est,ts:Date.now()});
-    renderFood();toast(est?`Logged · ${Math.round(est.kcal)} kcal, ${Math.round(est.p)}g protein`:"Logged — coach will tally");
-  }catch(e){$("foodbusy").innerHTML="";toast("Couldn't save: "+e.message)}
+    const r=await coachAI([{role:"user",content:`Estimate macros for this food, JSON ONLY, no prose: {"kcal":n,"p":n,"c":n,"f":n,"fib":n}. Food: ${raw}`}],200);
+    const est=JSON.parse(r.match(/\{[^}]+\}/)[0]);
+    await ic("/athlete/"+CFG.athlete+"/events/"+ev.id,{method:"PUT",body:JSON.stringify({description:JSON.stringify({raw,est,ts:Date.now()})})});
+    const cached=S.events.find(x=>x.id===ev.id);if(cached)cached.description=JSON.stringify({raw,est,ts:Date.now()});
+    parseNotes();renderFood();toast(`Tallied · ${Math.round(est.kcal)} kcal, ${Math.round(est.p)}g protein`);
+  }catch(_){toast("Saved — coach will tally macros at the next briefing")}
 }
 /* ═══ GYM ═══ */
 const GYM_TEMPLATE=[
@@ -806,10 +812,14 @@ async function sendChat(){
     const a=await coachAI(S.chat.slice(-12));
     holder.innerHTML=`<div class="who">Coach</div>${esc(a)}`;
     S.chat.push({role:"assistant",content:a});
-    writeNote("COS·chat",{q,a:a.slice(0,600),ts:Date.now()}).catch(()=>{});
+    try{writeNote("COS·chat",{q,a:String(a).slice(0,600),ts:Date.now()}).catch(()=>{})}catch(_){}
   }catch(e){holder.innerHTML=`<div class="who">Coach</div>Couldn't reach the coach engine (${esc(e.message)}). Check connection, or open the Claude app.`}
 }
 /* ═══ GO ═══ */
+let BOOTED_AT=Date.now(), BOOT_DAY=new Date().toDateString();
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="visible"&&(new Date().toDateString()!==BOOT_DAY||Date.now()-BOOTED_AT>45*60*1000))location.reload();
+});
 boot();
 </script>
 </body>
