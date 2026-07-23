@@ -184,7 +184,7 @@ nav.tabbar button.active{color:var(--accent)}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.0.5</div>
+  <div class="footer-note">Coach OS v1.0.6</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -480,7 +480,9 @@ function renderHeader(){
 /* ═══ TODAY ═══ */
 function trafficLight(r){return r==null?["var(--axis)","#333","–","No Whoop data yet today"]:r<34?["var(--crit)","#fff",r,"Red — recovery day, full stop"]:r<67?["var(--warn)","#5c3d00",r,"Amber — reduce, don't push"]:["var(--good)","#fff",r,"Green — as written, or a touch more"]}
 function renderToday(){
-  const w=S.wellness[S.wellness.length-1]||{};
+  const wRow=S.wellness[S.wellness.length-1]||{};
+  const w=wRow.readiness!=null?wRow:([...S.wellness].reverse().find(x=>x.readiness!=null)||wRow);
+  const stale=w!==wRow&&w.id!==wRow.id;
   const hrv7=S.wellness.slice(-8,-1).map(x=>x.hrv).filter(Boolean);
   const hrvAvg=hrv7.length?hrv7.reduce((a,b)=>a+b,0)/hrv7.length:null;
   const [bg,fg,val,line1]=trafficLight(w.readiness);
@@ -494,8 +496,8 @@ function renderToday(){
   <div class="card">
     <div class="light">
       <div class="dot" style="background:${bg}; color:${fg}">${val}</div>
-      <div class="txt"><div class="s1">${esc(line1)}</div>
-      <div class="s2">${cn?.j?.headline?esc(cn.j.headline):"Whoop → intervals wellness, live"}</div></div>
+      <div class="txt"><div class="s1">${stale?"Latest ("+dayName(w.id)+"): ":""}${esc(line1)}</div>
+      <div class="s2">${stale?"Today's Whoop hasn't synced yet — open the Whoop app to update":(cn?.j?.headline?esc(cn.j.headline):"")}</div></div>
     </div>
     <div class="metric-grid">
       <div class="metric"><div class="l">HRV</div><div class="v">${w.hrv?Math.round(w.hrv):"–"}<small> ms</small></div><div class="d ${hrvAvg&&w.hrv<hrvAvg*0.93?"dn":""}">${hrvAvg?"7-day "+Math.round(hrvAvg):""}</div></div>
@@ -506,6 +508,14 @@ function renderToday(){
       <div class="metric"><div class="l">Weight</div><div class="v">${S.weight?S.weight.toFixed(1):"–"}<small> kg</small></div><div class="d">→ ${CFG.targets.weightGoal}</div></div>
     </div>
   </div>
+  ${(()=>{const up=S.events.filter(e=>e.category==="WORKOUT"&&e.start_date_local?.slice(0,10)===today()&&!S.acts.some(a=>a.start_date_local?.slice(0,10)===today()&&typeMatch(e.type,a.type)));
+    return up.map(e=>{const lines=(e.description||"").split("\n").filter(Boolean);
+      const purpose=lines.find(l=>/^purpose/i.test(l))||lines[0]||"";
+      const steps=lines.filter(l=>l.trim().startsWith("-")).slice(0,8);
+      return`<div class="card"><h2>Up next · ${esc(e.name.replace(/^.*?·\s*/,""))} <span class="when">${esc(e.type)}${e.icu_training_load?" · load "+e.icu_training_load:""}${e.moving_time?" · ~"+Math.round(e.moving_time/60)+" min":""}</span></h2>
+      ${purpose?`<div style="font-size:13.5px; color:var(--ink)">${esc(purpose)}</div>`:""}
+      ${steps.length?`<div style="font-size:12.5px; color:var(--ink-2); margin-top:6px; font-variant-numeric:tabular-nums">${steps.map(esc).join("<br>")}</div>`:""}
+      </div>`}).join("")})()}
   ${cn?.j?.briefing?`<div class="card"><h2>Morning briefing <span class="when">${cn.date}</span></h2>
     <div style="font-size:13.5px; color:var(--ink-2); white-space:pre-wrap; line-height:1.55">${cn.j.briefing}</div></div>`:""}
   ${act?`<div class="card">
