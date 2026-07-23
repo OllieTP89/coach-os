@@ -188,7 +188,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.0.10</div>
+  <div class="footer-note">Coach OS v1.0.11</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -251,6 +251,8 @@ function saveSetup(){
 
 /* ═══ STATE ═══ */
 const S={wellness:[],acts:[],events:[],athlete:null,pcurve:null,notes:[],chat:[],detail:null,ftp:CFG.ftpFallback,weight:CFG.weightFallback,pz:[]};
+try{const cc=JSON.parse(localStorage.getItem("cos_chat")||"null");if(cc&&cc.ts&&Date.now()-cc.ts<7*864e5&&Array.isArray(cc.chat))S.chat=cc.chat.slice(-30);}catch(_){}
+function saveChat(){try{localStorage.setItem("cos_chat",JSON.stringify({ts:Date.now(),chat:S.chat.slice(-30)}))}catch(_){}}
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const md=t=>esc(t).replace(/\*\*([^*]+)\*\*/g,"<b>$1</b>");
@@ -273,7 +275,7 @@ async function coachAI(messages,maxTokens=500,opts={}){
   catch(e){await new Promise(r=>setTimeout(r,3000));return coachAIOnce(messages,maxTokens,opts)}
 }
 async function coachAIRaw(messages,maxTokens,opts={}){
-  const body={model:CFG.anthModel,max_tokens:maxTokens,system:opts.light?"You estimate food macros.":CFG.brief+"\n\nLIVE DATA:\n"+liveContext(),messages};
+  const body={model:CFG.anthModel,max_tokens:maxTokens,system:opts.light?"You estimate food macros.":CFG.brief+(CFG.dossier?"\n\nATHLETE DOSSIER (deep context — ground every answer in this, never give generic advice that contradicts it):\n"+CFG.dossier:"")+"\n\nLIVE DATA:\n"+liveContext()+pastConvos(),messages};
   if(opts.tools)body.tools=opts.tools;
   const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{
     "x-api-key":CFG.anthKey,"anthropic-version":"2023-06-01","content-type":"application/json",
@@ -370,7 +372,8 @@ async function runTool(tu){
 }
 const TOOL_STATUS={create_workout:"writing the workout…",update_workout:"updating the plan…",delete_workout:"removing the workout…",set_kcal_target:"adjusting your target…",get_activities:"pulling your sessions…",get_activity_streams:"reading the ride data…"};
 async function coachChat(holder){
-  let msgs=S.chat.slice(-12);
+  let msgs=S.chat.slice(-16);
+  while(msgs.length&&msgs[0].role!=="user")msgs=msgs.slice(1);
   let acc="";
   for(let i=0;i<9;i++){
     const d=await coachAIRaw(msgs,2800,{tools:COACH_TOOLS});
@@ -411,6 +414,17 @@ function liveContext(){
     latestCoachNote:coachNote()?.j||null,
     lastGymLog:S.notes.filter(n=>n.name==="COS·gym").slice(-1).map(n=>n.j)[0]||null});
 }
+function pastConvos(){
+  const t=today();
+  const es=S.notes.filter(n=>n.name==="COS·chat"&&n.date<t&&n.date>=addDays(t,-7)).sort((a,b)=>a.date<b.date?-1:1);
+  let out=[];
+  for(const n of es){
+    const arr=(n.j&&Array.isArray(n.j.entries))?n.j.entries:(n.j&&n.j.q?[n.j]:[]);
+    for(const e of arr)out.push({d:n.date,q:String(e.q||"").slice(0,200),a:String(e.a||"").slice(0,300)});
+  }
+  out=out.slice(-15);
+  return out.length?"\n\nPAST CONVERSATIONS (last 7 days, oldest first — this is your shared history with Ollie; stay consistent with it and build on it):\n"+JSON.stringify(out):"";
+}
 /* notes helpers */
 function parseNotes(){S.notes=S.events.filter(e=>e.category==="NOTE"&&(e.name||"").startsWith("COS·")).map(e=>{let j=null;try{j=JSON.parse(e.description||"{}")}catch(_){j={raw:e.description}}return{id:e.id,name:e.name,date:(e.start_date_local||"").slice(0,10),j}})}
 const foodNotes=d=>S.notes.filter(n=>n.name==="COS·food"&&n.date===d);
@@ -444,6 +458,7 @@ async function boot(){
       const briefEv=(bn||[]).find(e=>e.name==="COS\u00b7brief");
       if(briefEv){const j=JSON.parse(briefEv.description||"{}");
         if(j.brief)CFG.brief=j.brief;
+        if(j.dossier)CFG.dossier=j.dossier;
         if(j.roadmap)CFG.roadmap=j.roadmap;
         if(j.targets)Object.assign(CFG.targets,j.targets);
         if(j.hrZones)CFG.hrZones=j.hrZones;
@@ -1013,6 +1028,7 @@ function renderCoach(){
   <div class="card" style="padding-bottom:10px"><h2>Coach</h2>
     <div class="chat" id="chat">
       ${cn?`<div class="msg coach"><div class="who">Coach · daily note · ${cn.date}</div>${cn.j.headline?esc(cn.j.headline)+"\n\n":""}${cn.j.rest_of_day?cn.j.rest_of_day.replace(/<[^>]+>/g,""):""}</div>`:""}
+      ${S.chat.slice(-6).map(m=>`<div class="msg ${m.role==="user"?"me":"coach"}"><div class="who" ${m.role==="user"?'style="color:rgba(255,255,255,.75)"':''}>${m.role==="user"?"You":"Coach"}</div>${m.role==="user"?esc(String(m.content).replace(/^\(About activity[^)]*\)\s*/,"")):md(String(m.content))}</div>`).join("")}
     </div>
     <div class="chips">
       ${["How was my last ride?","What's the plan today?","Race day plan","Log a meal","Hip check-in"].map(q=>`<button class="ghost" onclick="askCoach('${q}')">${q}</button>`).join("")}
@@ -1042,6 +1058,7 @@ async function chatSend(inp,cid,prefix){
     const a=await coachChat(holder);
     holder.innerHTML=`<div class="who">Coach</div>${md(a)}`;
     S.chat.push({role:"assistant",content:a});
+    saveChat();
     logChat(prefix+q,a);
     if(S._dirty){refreshData();}
   }catch(e){holder.innerHTML=`<div class="who">Coach</div>Couldn't reach the coach engine (${esc(e.message)}). Check connection, or open the Claude app.`}
