@@ -184,7 +184,7 @@ nav.tabbar button.active{color:var(--accent)}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.0.6</div>
+  <div class="footer-note">Coach OS v1.0.7</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -288,7 +288,9 @@ const COACH_TOOLS=[
  {name:"create_workout",description:"Create a planned workout on the athlete's intervals.icu calendar (rides sync to Garmin with power targets when the description contains step lines like '- 12m ramp 45-75%' / '- 2x' / '- 15m 92%'). Strength weights in lb. Every description MUST start with 'Purpose: <one line>'.",input_schema:{type:"object",properties:{date:{type:"string",description:"YYYY-MM-DD local"},type:{type:"string",enum:["Ride","WeightTraining","Yoga","Run","Swim"]},name:{type:"string"},description:{type:"string"},load:{type:"number",description:"target training load"}},required:["date","type","name","description"]}},
  {name:"update_workout",description:"Modify an existing planned workout. Event ids and dates are in your LIVE DATA weekPlan.",input_schema:{type:"object",properties:{id:{type:"number"},name:{type:"string"},description:{type:"string"},load:{type:"number"},date:{type:"string"}},required:["id"]}},
  {name:"delete_workout",description:"Remove a planned workout. Get the athlete's conversational OK before deleting.",input_schema:{type:"object",properties:{id:{type:"number"}},required:["id"]}},
- {name:"set_kcal_target",description:"Set today's calorie target (shown and tracked in the Food tab).",input_schema:{type:"object",properties:{kcal:{type:"number"},reason:{type:"string"}},required:["kcal"]}}
+ {name:"set_kcal_target",description:"Set today's calorie target (shown and tracked in the Food tab).",input_schema:{type:"object",properties:{kcal:{type:"number"},reason:{type:"string"}},required:["kcal"]}},
+ {name:"get_activities",description:"List completed activities in a date range (last 60 days available) with full summary stats. Use to find activity ids and compare sessions.",input_schema:{type:"object",properties:{oldest:{type:"string",description:"YYYY-MM-DD"},newest:{type:"string",description:"YYYY-MM-DD"}},required:[]}},
+ {name:"get_activity_streams",description:"Deep-dive an activity: second-by-second power/HR/speed, returned as time bins plus computed highlights (best 5s/1m/5m/20m efforts, time in zone, HR drift halves, surge time above 150% FTP). Use for detailed ride analysis.",input_schema:{type:"object",properties:{id:{type:"string",description:"activity id from get_activities or LIVE DATA"}},required:["id"]}}
 ];
 async function runTool(tu){
   const a=tu.input||{};
@@ -316,6 +318,31 @@ async function runTool(tu){
         await writeNote("COS·coach",{kcal_target:a.kcal,headline:(a.reason||"Target adjusted in chat")});
       }
       S._dirty=true;return "kcal target set to "+a.kcal;
+    }
+    if(tu.name==="get_activities"){
+      const o=a.oldest||addDays(today(),-14),n=a.newest||today();
+      const rows=S.acts.filter(x=>{const d=x.start_date_local?.slice(0,10);return d>=o&&d<=n}).map(x=>({id:String(x.id),date:x.start_date_local?.slice(0,10),name:x.name,type:x.type,min:Math.round((x.moving_time||0)/60),km:x.distance?+(x.distance/1000).toFixed(1):null,load:x.icu_training_load,IF:x.icu_intensity?+(x.icu_intensity/100).toFixed(2):null,np:x.icu_weighted_avg_watts,avgW:x.icu_average_watts,maxHR:x.max_heartrate,avgHR:x.average_heartrate,cadence:x.average_cadence?Math.round(x.average_cadence):null,kcal:x.calories,decoupling:x.decoupling!=null?+x.decoupling.toFixed(1):null}));
+      return JSON.stringify(rows.slice(0,40));
+    }
+    if(tu.name==="get_activity_streams"){
+      const st=await ic("/activity/"+a.id+"/streams?types=watts,heartrate,velocity_smooth");
+      const g=t=>((st.find(s=>s.type===t)||{}).data||[]);
+      const wts=g("watts").map(x=>x==null?0:x),hr=g("heartrate").map(x=>x==null?0:x);
+      if(!wts.length)return "no power stream recorded for this activity";
+      const tot=wts.length;
+      const best=dur=>{if(tot<dur)return null;let s=0;for(let i=0;i<dur;i++)s+=wts[i];let mx=s;for(let i=dur;i<tot;i++){s+=wts[i]-wts[i-dur];if(s>mx)mx=s}return Math.round(mx/dur)};
+      const z=[0,0,0,0,0,0,0];wts.forEach(x=>{z[powerZone(x)-1]++});
+      const res=Math.max(10,Math.ceil(tot/70/10)*10);
+      const bin=arr=>{const out=[];for(let i=0;i<tot;i+=res){const seg=arr.slice(i,i+res).filter(x=>x>0);out.push(seg.length?Math.round(seg.reduce((s,x)=>s+x,0)/seg.length):0)}return out};
+      const hrH=hr.filter(x=>x>0);const half=Math.floor(hrH.length/2);
+      const hAvg=arr=>arr.length?Math.round(arr.reduce((s,x)=>s+x,0)/arr.length):null;
+      return JSON.stringify({seconds:tot,bin_seconds:res,ftp:S.ftp,
+        best_efforts_W:{s5:best(5),m1:best(60),m5:best(300),m20:best(1200)},
+        max_W:Math.max(...wts),
+        time_in_zone_pct:z.map(v=>Math.round(1000*v/tot)/10),
+        hr_first_half:hAvg(hrH.slice(0,half)),hr_second_half:hAvg(hrH.slice(half)),
+        surge_seconds_over_150pct_ftp:wts.filter(x=>x>1.5*S.ftp).length,
+        watts_bins:bin(wts),hr_bins:bin(hr)});
     }
     return "unknown tool";
   }catch(e){return "ERROR: "+e.message}
