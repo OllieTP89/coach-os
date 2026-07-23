@@ -188,7 +188,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.0.9</div>
+  <div class="footer-note">Coach OS v1.0.10</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -295,7 +295,8 @@ const COACH_TOOLS=[
  {name:"delete_workout",description:"Remove a planned workout. Get the athlete's conversational OK before deleting.",input_schema:{type:"object",properties:{id:{type:"number"}},required:["id"]}},
  {name:"set_kcal_target",description:"Set today's calorie target (shown and tracked in the Food tab).",input_schema:{type:"object",properties:{kcal:{type:"number"},reason:{type:"string"}},required:["kcal"]}},
  {name:"get_activities",description:"List completed activities in a date range (last 60 days available) with full summary stats. Use to find activity ids and compare sessions.",input_schema:{type:"object",properties:{oldest:{type:"string",description:"YYYY-MM-DD"},newest:{type:"string",description:"YYYY-MM-DD"}},required:[]}},
- {name:"get_activity_streams",description:"Deep-dive an activity. Default: binned overview of the whole ride plus highlights computed at FULL 1-second resolution (best 5s/1m/5m/20m, max W, time in zone, HR drift, surge seconds >150% FTP). With start_second/end_second: RAW per-second watts+HR for that window (max 6 min) — use this to dissect sprint/attack anatomy after locating it in the overview.",input_schema:{type:"object",properties:{id:{type:"string",description:"activity id from get_activities or LIVE DATA"},start_second:{type:"number"},end_second:{type:"number"}},required:["id"]}}
+ {name:"get_activity_streams",description:"Deep-dive an activity — ALL recorded metrics (power, HR, cadence, speed, altitude, temperature, torque). Default: binned overview of every stream plus highlights computed at FULL 1-second resolution (best 5s/1m/5m/20m, max W, time in zone, HR drift, surge seconds >150% FTP). With start_second/end_second: RAW per-second data for every stream in that window (max 6 min) — dissect sprints/attacks/climbs after locating them in the overview.",input_schema:{type:"object",properties:{id:{type:"string",description:"activity id from get_activities or LIVE DATA"},start_second:{type:"number"},end_second:{type:"number"}},required:["id"]}},
+ {name:"get_activity_laps",description:"Lap/interval breakdown of an activity: per-lap time, avg/max power, HR, cadence, speed, IF. Use for structured workouts, races, and effort-by-effort review.",input_schema:{type:"object",properties:{id:{type:"string"}},required:["id"]}}
 ];
 async function runTool(tu){
   const a=tu.input||{};
@@ -330,32 +331,39 @@ async function runTool(tu){
       return JSON.stringify(rows.slice(0,40));
     }
     if(tu.name==="get_activity_streams"){
-      const st=await ic("/activity/"+a.id+"/streams?types=watts,heartrate,velocity_smooth");
+      const st=await ic("/activity/"+a.id+"/streams?types=watts,heartrate,cadence,velocity_smooth,altitude,temp,torque");
       const g=t=>((st.find(s=>s.type===t)||{}).data||[]);
-      const wts=g("watts").map(x=>x==null?0:x),hr=g("heartrate").map(x=>x==null?0:x);
-      if(!wts.length)return "no power stream recorded for this activity";
-      const tot=wts.length;
+      const M={watts:g("watts"),hr:g("heartrate"),cadence:g("cadence"),speed_kph:g("velocity_smooth").map(v=>v==null?null:+(v*3.6).toFixed(1)),altitude_m:g("altitude"),temp_c:g("temp"),torque:g("torque")};
+      const wts=(M.watts||[]).map(x=>x==null?0:x);
+      const tot=Math.max(...Object.values(M).map(x=>x?x.length:0));
+      if(!tot)return "no streams recorded for this activity";
       if(a.start_second!=null||a.end_second!=null){
         let s0=Math.max(0,Math.floor(a.start_second||0)),s1=Math.min(tot,Math.ceil(a.end_second||tot));
         if(s1-s0>360)s1=s0+360;
-        const w=wts.slice(s0,s1),h=hr.slice(s0,s1);
-        return JSON.stringify({window_seconds:[s0,s1],resolution:"1s",ftp:S.ftp,
-          max_W:Math.max(...w),avg_W:Math.round(w.reduce((x,y)=>x+y,0)/w.length),
-          watts_per_second:w,hr_per_second:h});
+        const out={window_seconds:[s0,s1],resolution:"1s",ftp:S.ftp};
+        for(const k in M){if(M[k]&&M[k].some(x=>x!=null))out[k+"_per_second"]=M[k].slice(s0,s1)}
+        return JSON.stringify(out);
       }
-      const best=dur=>{if(tot<dur)return null;let s=0;for(let i=0;i<dur;i++)s+=wts[i];let mx=s;for(let i=dur;i<tot;i++){s+=wts[i]-wts[i-dur];if(s>mx)mx=s}return Math.round(mx/dur)};
+      const best=dur=>{if(!wts.length||wts.length<dur)return null;let s=0;for(let i=0;i<dur;i++)s+=wts[i];let mx=s;for(let i=dur;i<wts.length;i++){s+=wts[i]-wts[i-dur];if(s>mx)mx=s}return Math.round(mx/dur)};
       const z=[0,0,0,0,0,0,0];wts.forEach(x=>{z[powerZone(x)-1]++});
       const res=Math.max(10,Math.ceil(tot/70/10)*10);
-      const bin=arr=>{const out=[];for(let i=0;i<tot;i+=res){const seg=arr.slice(i,i+res).filter(x=>x>0);out.push(seg.length?Math.round(seg.reduce((s,x)=>s+x,0)/seg.length):0)}return out};
-      const hrH=hr.filter(x=>x>0);const half=Math.floor(hrH.length/2);
+      const bin=arr=>{const o=[];for(let i=0;i<tot;i+=res){const seg=arr.slice(i,i+res).filter(x=>x!=null);o.push(seg.length?Math.round(10*seg.reduce((s,x)=>s+x,0)/seg.length)/10:null)}return o};
+      const hrH=(M.hr||[]).filter(x=>x>0);const half=Math.floor(hrH.length/2);
       const hAvg=arr=>arr.length?Math.round(arr.reduce((s,x)=>s+x,0)/arr.length):null;
-      return JSON.stringify({seconds:tot,bin_seconds:res,ftp:S.ftp,
+      const out={seconds:tot,bin_seconds:res,ftp:S.ftp,
         best_efforts_W:{s5:best(5),m1:best(60),m5:best(300),m20:best(1200)},
-        max_W:Math.max(...wts),
-        time_in_zone_pct:z.map(v=>Math.round(1000*v/tot)/10),
+        max_W:wts.length?Math.max(...wts):null,
+        time_in_zone_pct:z.map(v=>Math.round(1000*v/(wts.length||1))/10),
         hr_first_half:hAvg(hrH.slice(0,half)),hr_second_half:hAvg(hrH.slice(half)),
-        surge_seconds_over_150pct_ftp:wts.filter(x=>x>1.5*S.ftp).length,
-        watts_bins:bin(wts),hr_bins:bin(hr)});
+        surge_seconds_over_150pct_ftp:wts.filter(x=>x>1.5*S.ftp).length};
+      for(const k in M){if(M[k]&&M[k].some(x=>x!=null&&x!==0))out[k+"_bins"]=bin(M[k])}
+      return JSON.stringify(out);
+    }
+    if(tu.name==="get_activity_laps"){
+      const d0=await ic("/activity/"+a.id+"/intervals");
+      const arr=(d0&&d0.icu_intervals)||[];
+      if(!arr.length)return "no laps/intervals recorded for this activity";
+      return JSON.stringify(arr.slice(0,40).map(l=>({label:l.label,type:l.type,start_s:l.start_time,end_s:l.end_time,moving_s:l.moving_time,avgW:l.average_watts!=null?Math.round(l.average_watts):null,maxW:l.max_watts,avgHR:l.average_heartrate!=null?Math.round(l.average_heartrate):null,avgCad:l.average_cadence!=null?Math.round(l.average_cadence):null,kph:l.average_speed!=null?+(l.average_speed*3.6).toFixed(1):null,IF:l.intensity!=null?+(l.intensity/100).toFixed(2):null})));
     }
     return "unknown tool";
   }catch(e){return "ERROR: "+e.message}
@@ -407,6 +415,21 @@ function liveContext(){
 function parseNotes(){S.notes=S.events.filter(e=>e.category==="NOTE"&&(e.name||"").startsWith("COS·")).map(e=>{let j=null;try{j=JSON.parse(e.description||"{}")}catch(_){j={raw:e.description}}return{id:e.id,name:e.name,date:(e.start_date_local||"").slice(0,10),j}})}
 const foodNotes=d=>S.notes.filter(n=>n.name==="COS·food"&&n.date===d);
 const coachNote=()=>S.notes.filter(n=>n.name==="COS·coach").sort((a,b)=>a.date<b.date?1:-1)[0];
+async function logChat(q,a){
+  try{
+    const t=today();
+    const ex=S.notes.find(n=>n.name==="COS·chat"&&n.date===t);
+    const entry={q:String(q).slice(0,300),a:String(a).slice(0,500),ts:Date.now()};
+    if(ex){
+      const prev=Array.isArray(ex.j.entries)?ex.j.entries:(ex.j.q?[{q:ex.j.q,a:ex.j.a,ts:ex.j.ts}]:[]);
+      const body=JSON.stringify({entries:[...prev.slice(-19),entry]});
+      await ic("/athlete/"+CFG.athlete+"/events/"+ex.id,{method:"PUT",body:JSON.stringify({description:body})});
+      const c=S.events.find(x=>x.id===ex.id);if(c)c.description=body;parseNotes();
+    }else{
+      await writeNote("COS·chat",{entries:[entry]});
+    }
+  }catch(_){}
+}
 async function writeNote(name,obj,date){
   const e=await ic("/athlete/"+CFG.athlete+"/events",{method:"POST",body:JSON.stringify({category:"NOTE",start_date_local:(date||today())+"T00:00:00",name,description:JSON.stringify(obj)})});
   S.events.push(e);parseNotes();return e;
@@ -1019,7 +1042,7 @@ async function chatSend(inp,cid,prefix){
     const a=await coachChat(holder);
     holder.innerHTML=`<div class="who">Coach</div>${md(a)}`;
     S.chat.push({role:"assistant",content:a});
-    try{writeNote("COS·chat",{q:prefix+q,a:String(a).slice(0,600),ts:Date.now()}).catch(()=>{})}catch(_){}
+    logChat(prefix+q,a);
     if(S._dirty){refreshData();}
   }catch(e){holder.innerHTML=`<div class="who">Coach</div>Couldn't reach the coach engine (${esc(e.message)}). Check connection, or open the Claude app.`}
 }
