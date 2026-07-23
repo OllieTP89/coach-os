@@ -184,7 +184,7 @@ nav.tabbar button.active{color:var(--accent)}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.0.4</div>
+  <div class="footer-note">Coach OS v1.0.5</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -267,23 +267,86 @@ async function coachAI(messages,maxTokens=500,opts={}){
   try{return await coachAIOnce(messages,maxTokens,opts)}
   catch(e){await new Promise(r=>setTimeout(r,3000));return coachAIOnce(messages,maxTokens,opts)}
 }
-async function coachAIOnce(messages,maxTokens,opts={}){
+async function coachAIRaw(messages,maxTokens,opts={}){
+  const body={model:CFG.anthModel,max_tokens:maxTokens,system:opts.light?"You estimate food macros.":CFG.brief+"\n\nLIVE DATA:\n"+liveContext(),messages};
+  if(opts.tools)body.tools=opts.tools;
   const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{
     "x-api-key":CFG.anthKey,"anthropic-version":"2023-06-01","content-type":"application/json",
-    "anthropic-dangerous-direct-browser-access":"true"},
-    body:JSON.stringify({model:CFG.anthModel,max_tokens:maxTokens,system:opts.light?"You estimate food macros.":CFG.brief+"\n\nLIVE DATA:\n"+liveContext(),messages})});
+    "anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify(body)});
   const d=await r.json().catch(()=>null);
   if(!r.ok||!d||d.type==="error")throw new Error((d&&d.error&&d.error.message)||("coach api "+r.status));
+  return d;
+}
+async function coachAIOnce(messages,maxTokens,opts={}){
+  const d=await coachAIRaw(messages,maxTokens,opts);
   const txt=(d.content||[]).filter(c=>c.type==="text").map(c=>c.text||"").join("").trim();
   if(!txt)throw new Error("empty reply ("+(d.stop_reason||"?")+")");
   return txt;
+}
+/* ═══ COACH TOOLS — the chat can change the plan ═══ */
+const COACH_TOOLS=[
+ {name:"create_workout",description:"Create a planned workout on the athlete's intervals.icu calendar (rides sync to Garmin with power targets when the description contains step lines like '- 12m ramp 45-75%' / '- 2x' / '- 15m 92%'). Strength weights in lb. Every description MUST start with 'Purpose: <one line>'.",input_schema:{type:"object",properties:{date:{type:"string",description:"YYYY-MM-DD local"},type:{type:"string",enum:["Ride","WeightTraining","Yoga","Run","Swim"]},name:{type:"string"},description:{type:"string"},load:{type:"number",description:"target training load"}},required:["date","type","name","description"]}},
+ {name:"update_workout",description:"Modify an existing planned workout. Event ids and dates are in your LIVE DATA weekPlan.",input_schema:{type:"object",properties:{id:{type:"number"},name:{type:"string"},description:{type:"string"},load:{type:"number"},date:{type:"string"}},required:["id"]}},
+ {name:"delete_workout",description:"Remove a planned workout. Get the athlete's conversational OK before deleting.",input_schema:{type:"object",properties:{id:{type:"number"}},required:["id"]}},
+ {name:"set_kcal_target",description:"Set today's calorie target (shown and tracked in the Food tab).",input_schema:{type:"object",properties:{kcal:{type:"number"},reason:{type:"string"}},required:["kcal"]}}
+];
+async function runTool(tu){
+  const a=tu.input||{};
+  try{
+    if(tu.name==="create_workout"){
+      const e=await ic("/athlete/"+CFG.athlete+"/events",{method:"POST",body:JSON.stringify({category:"WORKOUT",start_date_local:a.date+"T00:00:00",type:a.type,name:a.name,description:a.description,icu_training_load:a.load})});
+      S._dirty=true;return "created workout id "+e.id+" on "+a.date;
+    }
+    if(tu.name==="update_workout"){
+      const b={};if(a.name)b.name=a.name;if(a.description)b.description=a.description;if(a.load!=null)b.icu_training_load=a.load;if(a.date)b.start_date_local=a.date+"T00:00:00";
+      await ic("/athlete/"+CFG.athlete+"/events/"+a.id,{method:"PUT",body:JSON.stringify(b)});
+      S._dirty=true;return "updated workout "+a.id;
+    }
+    if(tu.name==="delete_workout"){
+      await ic("/athlete/"+CFG.athlete+"/events/"+a.id,{method:"DELETE"});
+      S._dirty=true;return "deleted workout "+a.id;
+    }
+    if(tu.name==="set_kcal_target"){
+      const cn=coachNote();
+      if(cn&&cn.date===today()){
+        const j={...cn.j,kcal_target:a.kcal};
+        await ic("/athlete/"+CFG.athlete+"/events/"+cn.id,{method:"PUT",body:JSON.stringify({description:JSON.stringify(j)})});
+        const c=S.events.find(x=>x.id===cn.id);if(c)c.description=JSON.stringify(j);parseNotes();
+      }else{
+        await writeNote("COS·coach",{kcal_target:a.kcal,headline:(a.reason||"Target adjusted in chat")});
+      }
+      S._dirty=true;return "kcal target set to "+a.kcal;
+    }
+    return "unknown tool";
+  }catch(e){return "ERROR: "+e.message}
+}
+async function coachChat(holder){
+  let msgs=S.chat.slice(-12);
+  for(let i=0;i<5;i++){
+    const d=await coachAIRaw(msgs,900,{tools:COACH_TOOLS});
+    const txts=(d.content||[]).filter(c=>c.type==="text").map(c=>c.text||"").join("").trim();
+    const tus=(d.content||[]).filter(c=>c.type==="tool_use");
+    if(!tus.length)return txts||"Done.";
+    holder.innerHTML='<div class="who">Coach</div><span class="spin"></span>'+esc(txts||"adjusting the plan…");
+    msgs=[...msgs,{role:"assistant",content:d.content}];
+    const results=[];
+    for(const tu of tus)results.push({type:"tool_result",tool_use_id:tu.id,content:await runTool(tu)});
+    msgs=[...msgs,{role:"user",content:results}];
+  }
+  return "Made the changes — check the Plan tab.";
+}
+async function refreshData(){
+  try{const t=today();
+    S.events=await ic("/athlete/"+CFG.athlete+"/events?oldest="+addDays(t,-28)+"&newest="+addDays(t,28));
+    parseNotes();renderToday();renderPlan();renderFood();renderGym();
+  }catch(_){}
 }
 function liveContext(){
   const w=S.wellness[S.wellness.length-1]||{};
   return JSON.stringify({date:today(),ftp:S.ftp,weight:S.weight,
     wellness:{readiness:w.readiness,hrv:w.hrv&&+w.hrv.toFixed(1),rhr:w.restingHR,sleepH:w.sleepSecs&&+(w.sleepSecs/3600).toFixed(1),ctl:w.ctl&&Math.round(w.ctl),atl:w.atl&&Math.round(w.atl)},
     recentRides:S.acts.slice(0,4).map(a=>({d:a.start_date_local?.slice(0,10),name:a.name,type:a.type,min:Math.round((a.moving_time||0)/60),load:a.icu_training_load,IF:a.icu_intensity&&+(a.icu_intensity/100).toFixed(2),np:a.icu_weighted_avg_watts,decoupling:a.decoupling&&+a.decoupling.toFixed(1)})),
-    weekPlan:S.events.filter(e=>e.category==="WORKOUT"&&e.start_date_local>=addDays(today(),-1)&&e.start_date_local<=addDays(today(),7)).map(e=>({d:e.start_date_local?.slice(0,10),name:e.name,type:e.type,load:e.icu_training_load})),
+    weekPlan:S.events.filter(e=>e.category==="WORKOUT"&&e.start_date_local>=addDays(today(),-1)&&e.start_date_local<=addDays(today(),8)).map(e=>({id:e.id,d:e.start_date_local?.slice(0,10),name:e.name,type:e.type,load:e.icu_training_load})),
     foodToday:foodNotes(today()).map(n=>n.j),
     latestCoachNote:coachNote()?.j||null,
     lastGymLog:S.notes.filter(n=>n.name==="COS·gym").slice(-1).map(n=>n.j)[0]||null});
@@ -872,10 +935,13 @@ async function sendChat(){
   inp.value="";addMsg(q,"me");S.chat.push({role:"user",content:q});
   const holder=addMsg("…","coach");
   try{
-    const a=await coachAI(S.chat.slice(-12));
+    const dirtyBefore=S._dirty;S._dirty=false;
+    const a=await coachChat(holder);
     holder.innerHTML=`<div class="who">Coach</div>${esc(a)}`;
     S.chat.push({role:"assistant",content:a});
     try{writeNote("COS·chat",{q,a:String(a).slice(0,600),ts:Date.now()}).catch(()=>{})}catch(_){}
+    if(S._dirty){refreshData();}
+    S._dirty=S._dirty||dirtyBefore;
   }catch(e){holder.innerHTML=`<div class="who">Coach</div>Couldn't reach the coach engine (${esc(e.message)}). Check connection, or open the Claude app.`}
 }
 /* ═══ GO ═══ */
