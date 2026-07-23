@@ -188,7 +188,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.0.11</div>
+  <div class="footer-note">Coach OS v1.0.12</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -298,7 +298,8 @@ const COACH_TOOLS=[
  {name:"set_kcal_target",description:"Set today's calorie target (shown and tracked in the Food tab).",input_schema:{type:"object",properties:{kcal:{type:"number"},reason:{type:"string"}},required:["kcal"]}},
  {name:"get_activities",description:"List completed activities in a date range (last 60 days available) with full summary stats. Use to find activity ids and compare sessions.",input_schema:{type:"object",properties:{oldest:{type:"string",description:"YYYY-MM-DD"},newest:{type:"string",description:"YYYY-MM-DD"}},required:[]}},
  {name:"get_activity_streams",description:"Deep-dive an activity — ALL recorded metrics (power, HR, cadence, speed, altitude, temperature, torque). Default: binned overview of every stream plus highlights computed at FULL 1-second resolution (best 5s/1m/5m/20m, max W, time in zone, HR drift, surge seconds >150% FTP). With start_second/end_second: RAW per-second data for every stream in that window (max 6 min) — dissect sprints/attacks/climbs after locating them in the overview.",input_schema:{type:"object",properties:{id:{type:"string",description:"activity id from get_activities or LIVE DATA"},start_second:{type:"number"},end_second:{type:"number"}},required:["id"]}},
- {name:"get_activity_laps",description:"Lap/interval breakdown of an activity: per-lap time, avg/max power, HR, cadence, speed, IF. Use for structured workouts, races, and effort-by-effort review.",input_schema:{type:"object",properties:{id:{type:"string"}},required:["id"]}}
+ {name:"get_activity_laps",description:"Lap/interval breakdown of an activity: per-lap time, avg/max power, HR, cadence, speed, IF. Use for structured workouts, races, and effort-by-effort review.",input_schema:{type:"object",properties:{id:{type:"string"}},required:["id"]}},
+ {name:"update_plan",description:"Amend the MACRO training plan (the block structure in the Plan tab: dates, purpose, KPI, weekly skeleton). Use when Ollie and you agree a structural change — this is a real power, use it at the decision point like workouts. Every change needs a clear reason; it's logged in the plan changelog he can see. Current plan is in LIVE DATA planBlocks.",input_schema:{type:"object",properties:{action:{type:"string",enum:["amend","add","remove"]},block:{type:"string",description:"exact block name (or new name for add)"},from:{type:"string",description:"YYYY-MM-DD"},to:{type:"string"},why:{type:"string",description:"the block's purpose, plain language"},kpi:{type:"string"},skel:{type:"array",items:{type:"string"},description:"7 lines, Mon..Sun"},c:{type:"string",enum:["z2","thr","vo2","deload","race","base"]},reason:{type:"string",description:"why this change - goes in the changelog"}},required:["action","block","reason"]}}
 ];
 async function runTool(tu){
   const a=tu.input||{};
@@ -361,6 +362,23 @@ async function runTool(tu){
       for(const k in M){if(M[k]&&M[k].some(x=>x!=null&&x!==0))out[k+"_bins"]=bin(M[k])}
       return JSON.stringify(out);
     }
+    if(tu.name==="update_plan"){
+      if(!CFG.plan||!CFG.briefId)return "ERROR: no editable plan loaded";
+      const P=CFG.plan;P.blocks=P.blocks||[];P.changelog=P.changelog||[];
+      const i=P.blocks.findIndex(b=>b.n.toLowerCase()===String(a.block||"").toLowerCase());
+      if(a.action==="remove"){if(i<0)return "ERROR: block not found";P.blocks.splice(i,1);}
+      else if(a.action==="add"){if(i>=0)return "ERROR: block already exists";
+        P.blocks.push({n:a.block,from:a.from||today(),to:a.to||today(),c:a.c||"z2",why:a.why||"",kpi:a.kpi||"",skel:a.skel||[]});
+        P.blocks.sort((x,y)=>x.from<y.from?-1:1);}
+      else{if(i<0)return "ERROR: block not found — names: "+P.blocks.map(b=>b.n).join(", ");
+        const b=P.blocks[i];["from","to","why","kpi","skel","c"].forEach(k=>{if(a[k]!=null)b[k]=a[k]});}
+      P.changelog.unshift({d:today(),block:a.block,action:a.action,reason:a.reason});
+      P.changelog=P.changelog.slice(0,20);P.updated=today();
+      CFG.briefRaw.plan=P;
+      await ic("/athlete/"+CFG.athlete+"/events/"+CFG.briefId,{method:"PUT",body:JSON.stringify({description:JSON.stringify(CFG.briefRaw)})});
+      S._dirty=true;renderPlan();
+      return "plan updated ("+a.action+" "+a.block+") and logged to changelog";
+    }
     if(tu.name==="get_activity_laps"){
       const d0=await ic("/activity/"+a.id+"/intervals");
       const arr=(d0&&d0.icu_intervals)||[];
@@ -410,9 +428,30 @@ function liveContext(){
     wellness:{readiness:w.readiness,hrv:w.hrv&&+w.hrv.toFixed(1),rhr:w.restingHR,sleepH:w.sleepSecs&&+(w.sleepSecs/3600).toFixed(1),ctl:w.ctl&&Math.round(w.ctl),atl:w.atl&&Math.round(w.atl)},
     recentRides:S.acts.slice(0,4).map(a=>({d:a.start_date_local?.slice(0,10),name:a.name,type:a.type,min:Math.round((a.moving_time||0)/60),load:a.icu_training_load,IF:a.icu_intensity&&+(a.icu_intensity/100).toFixed(2),np:a.icu_weighted_avg_watts,decoupling:a.decoupling&&+a.decoupling.toFixed(1)})),
     weekPlan:S.events.filter(e=>e.category==="WORKOUT"&&e.start_date_local>=addDays(today(),-1)&&e.start_date_local<=addDays(today(),8)).map(e=>({id:e.id,d:e.start_date_local?.slice(0,10),name:e.name,type:e.type,load:e.icu_training_load})),
+    planBlocks:(CFG.plan?.blocks||[]).map(b=>({n:b.n,from:b.from,to:b.to,kpi:b.kpi,current:today()>=b.from&&today()<=b.to||undefined})),
     foodToday:foodNotes(today()).map(n=>n.j),
     latestCoachNote:coachNote()?.j||null,
     lastGymLog:S.notes.filter(n=>n.name==="COS·gym").slice(-1).map(n=>n.j)[0]||null});
+}
+function setPlanView(v){S.planView=v;renderPlan()}
+async function retryTallies(){
+  if(S._retry||!CFG.anthKey)return;S._retry=true;
+  try{
+    const t=today();
+    const pend=S.notes.filter(n=>n.name==="COS·food"&&n.j&&!n.j.est&&n.j.raw&&n.date>=addDays(t,-3));
+    let fixed=0;
+    for(const n of pend){
+      try{
+        const r=await coachAI([{role:"user",content:`Estimate macros for this food log entry: "${n.j.raw}". If it is actual food/drink reply JSON ONLY {"est":{"kcal":n,"p":n,"c":n,"f":n,"fib":n}}. If it is a correction/instruction rather than food, reply {"est":null}.`}],200,{light:true});
+        const est=JSON.parse(r.match(/\{[\s\S]*\}/)[0]).est;
+        if(!est||est.kcal==null)continue;
+        const body=JSON.stringify({...n.j,est});
+        await ic("/athlete/"+CFG.athlete+"/events/"+n.id,{method:"PUT",body:JSON.stringify({description:body})});
+        const c=S.events.find(x=>x.id===n.id);if(c)c.description=body;fixed++;
+      }catch(_){}
+    }
+    if(fixed){parseNotes();renderFood();toast(fixed+" pending food entr"+(fixed>1?"ies":"y")+" tallied")}
+  }finally{S._retry=false}
 }
 function pastConvos(){
   const t=today();
@@ -457,8 +496,10 @@ async function boot(){
       const bn=await ic("/athlete/"+CFG.athlete+"/events?oldest=2026-01-01&newest=2026-01-02");
       const briefEv=(bn||[]).find(e=>e.name==="COS\u00b7brief");
       if(briefEv){const j=JSON.parse(briefEv.description||"{}");
+        CFG.briefId=briefEv.id;CFG.briefRaw=j;
         if(j.brief)CFG.brief=j.brief;
         if(j.dossier)CFG.dossier=j.dossier;
+        if(j.plan)CFG.plan=j.plan;
         if(j.roadmap)CFG.roadmap=j.roadmap;
         if(j.targets)Object.assign(CFG.targets,j.targets);
         if(j.hrZones)CFG.hrZones=j.hrZones;
@@ -480,6 +521,7 @@ async function boot(){
     parseNotes();
     $("loading").style.display="none";
     renderHeader();renderToday();renderPlan();renderProgress();renderFood();renderGym();renderCoach();
+    retryTallies();
     showTab("today");
   }catch(err){
     $("loading").style.display="none";
@@ -763,10 +805,29 @@ function renderPlan(){
       const dl=dayActs.reduce((s,a)=>s+(a.icu_training_load||0),0);
       if(pl&&dl>pl*1.6)tooHard++;else asWritten++;});}
   const totB=asWritten+tooHard+missed||1;
-  $("tab-plan").innerHTML=`
-  <div class="card"><h2>The season shape <span class="when">confirmed 22 Jul</span></h2>
+  const P=CFG.plan;
+  const toggle=P?`<div style="display:flex; gap:8px; margin:2px 0 12px">
+    <button class="ghost" style="${S.planView!=="blocks"?"background:var(--accent);color:#fff;border-color:var(--accent)":""}" onclick="setPlanView('week')">This week</button>
+    <button class="ghost" style="${S.planView==="blocks"?"background:var(--accent);color:#fff;border-color:var(--accent)":""}" onclick="setPlanView('blocks')">Training blocks</button></div>`:"";
+  const fmtD=d=>{const x=new Date(d+"T12:00:00");return x.toLocaleDateString("en-US",{month:"short",day:"numeric"})};
+  const blocksView=P?(P.blocks||[]).map(b=>{const cur=t>=b.from&&t<=b.to;const col={race:"var(--serious)",thr:"var(--warn)",vo2:"var(--crit)",deload:"var(--accent)",base:"var(--z1)",z2:"var(--z2)"}[b.c]||"var(--z2)";
+    return`<div class="card" style="${cur?"outline:2px solid "+col+"; outline-offset:-1px;":""}">
+      <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px">
+        <h2 style="margin:0">${esc(b.n)}${cur?' <span class="pill key">now</span>':""}</h2>
+        <span class="when" style="white-space:nowrap">${fmtD(b.from)} – ${fmtD(b.to)}</span></div>
+      <div style="height:4px; border-radius:99px; background:${col}; opacity:.85; margin:8px 0 10px"></div>
+      ${b.why?`<div style="font-size:13.5px; color:var(--ink-2); margin-bottom:8px">${esc(b.why)}</div>`:""}
+      ${b.kpi?`<div style="font-size:12.5px; margin-bottom:8px"><b>KPI:</b> <span style="color:var(--ink-2)">${esc(b.kpi)}</span></div>`:""}
+      ${(b.skel&&b.skel.length)?`<div style="font-size:12.5px; color:var(--ink-2)">${b.skel.map(s=>`<div style="padding:2.5px 0; border-top:1px solid var(--line)">${esc(s)}</div>`).join("")}</div>`:""}
+    </div>`}).join("")+((P.changelog&&P.changelog.length)?`<div class="card"><h2>Plan changelog</h2>${P.changelog.slice(0,6).map(c=>`<div style="font-size:12.5px; color:var(--ink-2); padding:5px 0; border-bottom:1px solid var(--line)"><b>${esc(c.d)}</b> · ${esc(c.action)} ${esc(c.block)} — ${esc(c.reason)}</div>`).join("")}</div>`:""):"";
+  if(S.planView==="blocks"&&P){
+    $("tab-plan").innerHTML=toggle+blocksView;
+    return;
+  }
+  $("tab-plan").innerHTML=toggle+`
+  <div class="card"><h2>The season shape</h2>
     <div class="blocks">${blkHtml}</div>
-    <div style="font-size:12px; color:var(--ink-2); margin-top:6px">Durability II starts after Sunday's race; FTP re-test in the W35 deload sets the build's zones. Strength runs continuously underneath.</div></div>
+    <div style="font-size:12px; color:var(--ink-2); margin-top:6px">Tap "Training blocks" for what each block is for and how its weeks are built. Strength runs continuously underneath.</div></div>
   <div class="card"><h2>This week</h2>${dayHtml||'<div style="font-size:13px;color:var(--ink-3)">no planned workouts found this week</div>'}</div>
   <div class="card"><h2>Execution adherence <span class="when">last 28 days · did you do the workout as written?</span></h2>
     <div style="display:flex; height:10px; border-radius:99px; overflow:hidden; gap:2px">
