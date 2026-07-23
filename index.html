@@ -184,7 +184,7 @@ nav.tabbar button.active{color:var(--accent)}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.0.1 · live data from intervals.icu · coach engine: Claude<br>refresh to update · charts &amp; commentary regenerate from actuals</div>
+  <div class="footer-note">Coach OS v1.0.2 · live data from intervals.icu · coach engine: Claude<br>refresh to update · charts &amp; commentary regenerate from actuals</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -250,8 +250,8 @@ const S={wellness:[],acts:[],events:[],athlete:null,pcurve:null,notes:[],chat:[]
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const fmtT=s=>{s=Math.round(s||0);const h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;return h?`${h}:${String(m).padStart(2,"0")}:${String(ss).padStart(2,"0")}`:`${m}:${String(ss).padStart(2,"0")}`};
-const today=()=>new Date().toISOString().slice(0,10);
-const addDays=(d,n)=>{const x=new Date(d+"T12:00:00");x.setDate(x.getDate()+n);return x.toISOString().slice(0,10)};
+const today=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};
+const addDays=(d,n)=>{const x=new Date(d+"T12:00:00");x.setDate(x.getDate()+n);return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0")};
 const dayName=d=>new Date(d+"T12:00:00").toLocaleDateString("en-US",{weekday:"short"});
 const toast=m=>{const el=$("toast");el.textContent=m;el.classList.add("show");clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove("show"),2600)};
 function powerZone(w){const f=w/S.ftp;const b=[0.55,0.75,0.90,1.05,1.20,1.50,99];for(let i=0;i<7;i++){if(f<b[i]||i===6)return i+1}return 7}
@@ -263,11 +263,15 @@ async function ic(path,opts={}){
   const ct=r.headers.get("content-type")||"";
   return ct.includes("json")?r.json():r.text();
 }
-async function coachAI(messages,maxTokens=500){
+async function coachAI(messages,maxTokens=500,opts={}){
+  try{return await coachAIOnce(messages,maxTokens,opts)}
+  catch(e){await new Promise(r=>setTimeout(r,3000));return coachAIOnce(messages,maxTokens,opts)}
+}
+async function coachAIOnce(messages,maxTokens,opts={}){
   const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{
     "x-api-key":CFG.anthKey,"anthropic-version":"2023-06-01","content-type":"application/json",
     "anthropic-dangerous-direct-browser-access":"true"},
-    body:JSON.stringify({model:CFG.anthModel,max_tokens:maxTokens,system:CFG.brief+"\n\nLIVE DATA:\n"+liveContext(),messages})});
+    body:JSON.stringify({model:CFG.anthModel,max_tokens:maxTokens,system:opts.light?"You estimate food macros.":CFG.brief+"\n\nLIVE DATA:\n"+liveContext(),messages})});
   const d=await r.json().catch(()=>null);
   if(!r.ok||!d||d.type==="error")throw new Error((d&&d.error&&d.error.message)||("coach api "+r.status));
   const txt=(d.content||[]).filter(c=>c.type==="text").map(c=>c.text||"").join("").trim();
@@ -703,7 +707,7 @@ function renderFood(){
   <div class="card"><h2>Today <span class="when">${hardDay?"hard day · fuel it":evToday.length?"moderate day":"easy day"} · target ${kcalTgt.toLocaleString()} kcal</span></h2>
     <div class="inputbar" style="margin-bottom:10px"><input id="foodinput" placeholder="What did you eat? Rough words fine…" onkeydown="if(event.key==='Enter')logFood()"><button onclick="logFood()">Log</button></div>
     <div id="foodbusy"></div>
-    ${logs.length?`<div style="font-size:12.5px;color:var(--ink-2);margin-bottom:8px">${logs.map(n=>`• ${esc(n.j.raw||"")} <span style="color:var(--ink-3)">(${n.j.est?Math.round(n.j.est.kcal)+" kcal · "+Math.round(n.j.est.p)+"g P":"tallying…"})</span>`).join("<br>")}</div>`:`<div style="font-size:13px;color:var(--ink-3);margin-bottom:8px">Nothing logged yet today.</div>`}
+    ${logs.length?`<div style="font-size:12.5px;color:var(--ink-2);margin-bottom:8px">${logs.map(n=>`• ${esc(n.j.raw||"")} <span style="color:var(--ink-3)">(${n.j.est?Math.round(n.j.est.kcal)+" kcal · "+Math.round(n.j.est.p)+"g P":"coach will tally"})</span>`).join("<br>")}</div>`:`<div style="font-size:13px;color:var(--ink-3);margin-bottom:8px">Nothing logged yet today.</div>`}
     ${bar("Calories",tot.kcal,kcalTgt,"kcal","var(--accent)")}
     ${bar("Protein",tot.p,CFG.targets.protein,"g","var(--z5)")}
     ${bar("Carbs",tot.c,hardDay?330:230,"g","var(--z4)")}
@@ -727,7 +731,7 @@ async function logFood(){
   catch(e){$("foodbusy").innerHTML="";toast("Couldn't save: "+e.message);inp.value=raw;return}
   renderFood();toast("Logged — tallying macros…");
   try{
-    const r=await coachAI([{role:"user",content:`Estimate macros for this food, JSON ONLY, no prose: {"kcal":n,"p":n,"c":n,"f":n,"fib":n}. Food: ${raw}`}],200);
+    const r=await coachAI([{role:"user",content:`Estimate macros for this food, JSON ONLY, no prose: {"kcal":n,"p":n,"c":n,"f":n,"fib":n}. Food: ${raw}`}],200,{light:true});
     const est=JSON.parse(r.match(/\{[^}]+\}/)[0]);
     await ic("/athlete/"+CFG.athlete+"/events/"+ev.id,{method:"PUT",body:JSON.stringify({description:JSON.stringify({raw,est,ts:Date.now()})})});
     const cached=S.events.find(x=>x.id===ev.id);if(cached)cached.description=JSON.stringify({raw,est,ts:Date.now()});
