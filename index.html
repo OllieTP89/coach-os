@@ -188,7 +188,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.0.16</div>
+  <div class="footer-note">Coach OS v1.0.18</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -856,11 +856,35 @@ function renderPlan(){
 /* ═══ PROGRESS ═══ */
 function pcPoints(){
   const c=(S.pcurve?.list||[])[0];if(!c)return null;
-  const keep=[1,5,15,30,60,120,300,600,1200,2400,3600],pts={};
+  const keep=[1,5,15,30,60,120,180,300,600,900,1200,1800,2700,3600],pts={};
   (c.secs||[]).forEach((s,i)=>{if(keep.includes(s))pts[s]=(c.values||c.watts||[])[i]});
   return Object.keys(pts).length?pts:null;
 }
 function decoupSeries(){return S.acts.filter(a=>["Ride","VirtualRide"].includes(a.type)&&a.decoupling!=null&&(a.moving_time||0)>=1800).map(a=>({d:a.start_date_local.slice(0,10),v:+a.decoupling.toFixed(1)})).reverse()}
+/* Strava-cohort radar: thresholds captured 2026-07-24 (men 35-39, 84kg; levels Aspiring..World Class) */
+const COHORT={15:[389,583,665,717,800,915,1115,1249],30:[340,509,581,626,698,798,973,1090],60:[231,347,396,426,475,544,663,742],120:[211,316,360,388,433,495,604,676],180:[197,295,337,363,405,463,564,632],300:[173,259,296,319,355,406,495,555],600:[164,245,280,302,336,384,468,525],900:[156,234,267,288,321,367,448,501],1200:[151,226,258,278,310,354,432,484],1800:[146,219,249,269,299,342,417,467],2700:[135,202,230,248,276,316,385,432],3600:[127,190,216,233,260,297,362,406]};
+const ALLTIME={15:877,30:655,60:454,120:403,180:381,300:364,600:332,900:320,1200:309,1800:296,2700:297,3600:273};
+const RADAR_LABELS={15:"15s",30:"30s",60:"1m",120:"2m",180:"3m",300:"5m",600:"10m",900:"15m",1200:"20m",1800:"30m",2700:"45m",3600:"60m"};
+function cohortFrac(v,row){if(!v)return 0;if(v<=row[0])return Math.max(0.04,(v/row[0])*(1/8));for(let i=row.length-1;i>=0;i--){if(v>=row[i]){const hi=row[i+1];if(hi==null)return 1;return Math.min(1,((i+1)+(v-row[i])/(hi-row[i]))/8)}}return 0.05}
+function radarSvg(pc){
+  const secs=Object.keys(COHORT).map(Number).filter(t=>pc[t]||ALLTIME[t]);
+  if(secs.length<5)return "";
+  const W=320,H=300,cx=W/2,cy=H/2+2,R=104;
+  const ang=i=>-Math.PI/2+i*2*Math.PI/secs.length;
+  const pt=(i,f)=>[(cx+Math.cos(ang(i))*R*f).toFixed(1),(cy+Math.sin(ang(i))*R*f).toFixed(1)];
+  let out=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="power radar across durations, levels as rings">`;
+  for(let k=1;k<=8;k++)out+=`<circle cx="${cx}" cy="${cy}" r="${(R*k/8).toFixed(1)}" fill="none" stroke="var(--grid)" stroke-width="${k===8?1.2:0.7}"/>`;
+  secs.forEach((t,i)=>{const [x,y]=pt(i,1);out+=`<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--grid)" stroke-width="0.7"/>`});
+  const poly=(vals,fill,stroke)=>{const ps=secs.map((t,i)=>pt(i,cohortFrac(vals[t],COHORT[t])).join(",")).join(" ");return `<polygon points="${ps}" fill="${fill}" stroke="${stroke}" stroke-width="1.5" stroke-linejoin="round"/>`};
+  out+=poly(ALLTIME,"color-mix(in srgb, var(--z5) 26%, transparent)","var(--z5)");
+  out+=poly(pc,"color-mix(in srgb, var(--accent) 34%, transparent)","var(--accent)");
+  secs.forEach((t,i)=>{const f=cohortFrac(pc[t],COHORT[t]);if(pc[t]){const [x,y]=pt(i,f);out+=`<circle cx="${x}" cy="${y}" r="2.4" fill="var(--accent)"/>`}
+    const [lx,ly]=pt(i,1.21);
+    out+=`<text x="${lx}" y="${ly}" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--ink)">${RADAR_LABELS[t]}</text>`;
+    const v=pc[t]||ALLTIME[t];
+    out+=`<text x="${lx}" y="${(+ly+10).toFixed(1)}" text-anchor="middle" font-size="8.5" fill="var(--ink-3)">${v?Math.round(v)+"W":""}</text>`});
+  return out+"</svg>";
+}
 const COGGAN={s5:[11.26,13.04,14.81,16.59,18.66,20.44,22.22,24.00],m1:[6.10,6.79,7.48,8.17,8.97,9.66,10.35,11.04],m5:[2.74,3.36,3.98,4.60,5.33,5.95,6.57,7.19],ftp:[2.22,2.75,3.29,3.82,4.44,4.98,5.51,6.04]};
 const COGGAN_NAMES=["Untrained","Fair (Cat 5)","Moderate (Cat 4)","Good (Cat 3)","Very good (Cat 2)","Excellent (Cat 1)","Exceptional","World class"];
 function cogganRate(kg,row){let i=-1;row.forEach((v,j)=>{if(kg>=v)i=j});return{idx:i,name:i<0?"Below scale":COGGAN_NAMES[i],pct:Math.max(2,Math.min(98,100*(kg-row[0])/(row[row.length-1]-row[0])))}}
@@ -937,7 +961,9 @@ function renderProgress(){
     <div class="legend"><span><i style="background:var(--accent)"></i>Best efforts, 42 d</span>
     <span><i style="background:color-mix(in srgb,var(--accent) 18%, transparent); outline:1px solid var(--accent)"></i>Durability block target zone</span></div>
     ${coachNote()?.j?.curve_read?`<div class="coach-note">${coachNote().j.curve_read}<span class="dyn">↻ Coach · ${coachNote().date}</span></div>`:""}</div>
-  <div class="card"><h2>Power skills <span class="when">Coggan scale · @ ${S.weight.toFixed(1)} kg</span></h2>
+  <div class="card"><h2>Power skills <span class="when">rings = levels in your cohort (M 35–39, 84 kg)</span></h2>
+    <div class="chart-wrap">${radarSvg(pc)}</div>
+    <div class="legend" style="margin-bottom:10px"><span><i style="background:var(--accent)"></i>Last 42 days</span><span><i style="background:var(--z5)"></i>All-time</span></div>
     ${[["s5",pc[5],"Sprint · 5 s","z7"],["m1",pc[60],"Anaerobic · 1 min","z5"],["m5",pc[300],"VO2 · 5 min","z4"],["ftp",S.ftp,"Threshold · FTP","z3"]]
       .map(([key,w,l,c])=>{if(!w)return"";const kg=w/S.weight;const r=cogganRate(kg,COGGAN[key]);
       return`<div class="skill"><div class="top"><b>${l}</b><span>${kg.toFixed(1)} W/kg · <b>${r.name}</b></span></div>
@@ -1108,11 +1134,12 @@ async function photoFood(input){
 }
 /* ═══ GYM ═══ */
 const GYM_TEMPLATE=[
-  {name:"Barbell bench press",scheme:"4 × 5 — leave 2 in the tank",sets:[[135,5],[135,5],[135,5],[135,5]]},
+  {name:"Barbell bench press",scheme:"4 × 5 — anchor lift, leave 2 in the tank",sets:[[135,5],[135,5],[135,5],[135,5]]},
+  {name:"Goblet squat (hip-gated: ANY hip signal = stop)",scheme:"3 × 8 — light, 3s down tempo",sets:[[35,8],[35,8],[35,8]]},
   {name:"Chest-supported DB row",scheme:"3 × 10 per DB",sets:[[50,10],[50,10],[50,10]]},
   {name:"Seated DB shoulder press",scheme:"3 × 8 per DB",sets:[[40,8],[40,8],[40,8]]},
   {name:"Lat pulldown",scheme:"3 × 12",sets:[[140,12],[140,12],[140,12]]},
-  {name:"DB lateral raise",scheme:"3 × 15 per DB",sets:[[15,15],[15,15],[15,15]]}];
+  {name:"Pallof press",scheme:"2 × 10 per side",sets:[[20,10],[20,10]]}];
 function renderGym(){
   const nextEv=S.events.filter(e=>e.category==="WORKOUT"&&e.type==="WeightTraining"&&e.start_date_local?.slice(0,10)>=today()).sort((a,b)=>a.start_date_local<b.start_date_local?-1:1)[0];
   const lastLog=S.notes.filter(n=>n.name==="COS·gym").slice(-1)[0];
