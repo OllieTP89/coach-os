@@ -188,7 +188,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.0.18</div>
+  <div class="footer-note">Coach OS v1.1.0</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -203,6 +203,8 @@ const CFG={
   icBase:"https://intervals.icu/api/v1",
   anthKey:null,
   anthModel:"claude-sonnet-5",
+  ghToken:null,
+  ghRepo:"OllieTP89/coach-os-data",
   ftpFallback:250, weightFallback:75, lthr:165,
   hrZones:[137,150,158,166,171,177,999],
   targets:{weightGoal:null, ftpGoal:null, benchGoal:null, protein:150, fatLow:60, fatHigh:90, fibre:30,
@@ -217,10 +219,11 @@ const CFG={
     const h=new URLSearchParams(location.hash.slice(1));
     if(h.get("i")&&h.get("n")&&h.get("a")){
       CFG.athlete=h.get("a");CFG.icKey=h.get("i");CFG.anthKey=h.get("n");
-      localStorage.setItem("cos_creds",JSON.stringify({a:CFG.athlete,i:CFG.icKey,n:CFG.anthKey}));
+      if(h.get("g"))CFG.ghToken=h.get("g");
+      localStorage.setItem("cos_creds",JSON.stringify({a:CFG.athlete,i:CFG.icKey,n:CFG.anthKey,g:CFG.ghToken}));
     }else{
       const s=JSON.parse(localStorage.getItem("cos_creds")||"null");
-      if(s){CFG.athlete=s.a;CFG.icKey=s.i;CFG.anthKey=s.n;}
+      if(s){CFG.athlete=s.a;CFG.icKey=s.i;CFG.anthKey=s.n;if(s.g)CFG.ghToken=s.g;}
     }
   }catch(_){}
 })();
@@ -235,16 +238,18 @@ function renderSetup(){
     <div style="font-size:12px; color:var(--ink-3)">intervals.icu API key (Settings → Developer)</div>
     <input id="su_i" style="width:100%; border:0.5px solid var(--border); background:var(--card); border-radius:9px; padding:10px 12px; font-size:16px; color:var(--ink); margin:4px 0 10px">
     <div style="font-size:12px; color:var(--ink-3)">Anthropic API key (sk-ant-…)</div>
-    <input id="su_n" style="width:100%; border:0.5px solid var(--border); background:var(--card); border-radius:9px; padding:10px 12px; font-size:16px; color:var(--ink); margin:4px 0 12px">
+    <input id="su_n" style="width:100%; border:0.5px solid var(--border); background:var(--card); border-radius:9px; padding:10px 12px; font-size:16px; color:var(--ink); margin:4px 0 10px">
+    <div style="font-size:12px; color:var(--ink-3)">GitHub data-store token (github_pat_…)</div>
+    <input id="su_g" style="width:100%; border:0.5px solid var(--border); background:var(--card); border-radius:9px; padding:10px 12px; font-size:16px; color:var(--ink); margin:4px 0 12px">
     <button class="primary" onclick="saveSetup()">Save & load my data</button>
     <div style="font-size:11px; color:var(--ink-3); margin-top:10px">After it loads, use Safari's Share → Add to Home Screen. Keys persist on-device; if the phone ever forgets them, this screen simply reappears.</div>
   </div>`;
 }
 function saveSetup(){
-  const a=document.getElementById("su_a").value.trim(),i=document.getElementById("su_i").value.trim(),n=document.getElementById("su_n").value.trim();
-  if(!a||!i||!n){toast("All three fields needed");return}
-  CFG.athlete=a;CFG.icKey=i;CFG.anthKey=n;
-  localStorage.setItem("cos_creds",JSON.stringify({a,i,n}));
+  const a=document.getElementById("su_a").value.trim(),i=document.getElementById("su_i").value.trim(),n=document.getElementById("su_n").value.trim(),g=document.getElementById("su_g").value.trim();
+  if(!a||!i||!n){toast("First three fields needed");return}
+  CFG.athlete=a;CFG.icKey=i;CFG.anthKey=n;if(g)CFG.ghToken=g;
+  localStorage.setItem("cos_creds",JSON.stringify({a,i,n,g:g||null}));
   document.getElementById("loading").innerHTML='<span class="spin"></span>Pulling live data from intervals.icu…';
   boot();
 }
@@ -436,58 +441,82 @@ function liveContext(){
     planBlocks:(CFG.plan?.blocks||[]).map(b=>({n:b.n,from:b.from,to:b.to,kpi:b.kpi,current:today()>=b.from&&today()<=b.to||undefined})),
     foodToday:foodNotes(today()).map(n=>n.j),
     latestCoachNote:coachNote()?.j||null,
-    lastGymLog:S.notes.filter(n=>n.name==="COS·gym").slice(-1).map(n=>n.j)[0]||null});
+    lastGymLog:gymLogs().slice(-1).map(n=>({exercises:n.j.exercises,date:n.date}))[0]||null});
 }
 function setPlanView(v){S.planView=v;renderPlan()}
 async function retryTallies(){
-  if(S._retry||!CFG.anthKey)return;S._retry=true;
+  if(S._retry||!CFG.anthKey||!CFG.ghToken||S.storeOffline)return;S._retry=true;
   try{
     const t=today();
-    const pend=S.notes.filter(n=>n.name==="COS·food"&&n.j&&!n.j.est&&n.j.raw&&n.date>=addDays(t,-3));
+    const pend=((S.store.nutrition||{}).entries||[]).filter(e=>!e.est&&e.raw&&e.date>=addDays(t,-3));
     let fixed=0;
-    for(const n of pend){
+    for(const e of pend){
       try{
-        const r=await coachAI([{role:"user",content:`Estimate macros for this food log entry: "${n.j.raw}". If it is actual food/drink, break it into COMPONENT items with assumed portions and reply JSON ONLY {"items":[{"n":"<component>","q":"<assumed qty>","kcal":n,"p":n,"c":n,"f":n,"fib":n},...]}. If it is a correction/instruction rather than food, reply {"items":null}.`}],700,{light:true});
+        const r=await coachAI([{role:"user",content:`Estimate macros for this food log entry: "${e.raw}". If it is actual food/drink, break it into COMPONENT items with assumed portions and reply JSON ONLY {"items":[{"n":"<component>","q":"<assumed qty>","kcal":n,"p":n,"c":n,"f":n,"fib":n},...]}. If it is a correction/instruction rather than food, reply {"items":null}.`}],700,{light:true});
         const items=JSON.parse(r.match(/\{[\s\S]*\}/)[0]).items;
         if(!items||!items.length)continue;
-        const est=sumItems(items);
-        const body=JSON.stringify({...n.j,est,items});
-        await ic("/athlete/"+CFG.athlete+"/events/"+n.id,{method:"PUT",body:JSON.stringify({description:body})});
-        const c=S.events.find(x=>x.id===n.id);if(c)c.description=body;fixed++;
+        await storeMutate("nutrition",j=>{const x=j.entries.find(y=>y.id===e.id);if(x){x.items=items;x.est=sumItems(items)}},"app: retally");
+        fixed++;
       }catch(_){}
     }
-    if(fixed){parseNotes();renderFood();toast(fixed+" pending food entr"+(fixed>1?"ies":"y")+" tallied")}
+    if(fixed){renderFood();toast(fixed+" pending food entr"+(fixed>1?"ies":"y")+" tallied")}
   }finally{S._retry=false}
 }
 function pastConvos(){
   const t=today();
-  const es=S.notes.filter(n=>n.name==="COS·chat"&&n.date<t&&n.date>=addDays(t,-7)).sort((a,b)=>a.date<b.date?-1:1);
-  let out=[];
-  for(const n of es){
-    const arr=(n.j&&Array.isArray(n.j.entries))?n.j.entries:(n.j&&n.j.q?[n.j]:[]);
-    for(const e of arr)out.push({d:n.date,q:String(e.q||"").slice(0,200),a:String(e.a||"").slice(0,300)});
-  }
-  out=out.slice(-15);
+  const out=((S.store&&S.store.chat&&S.store.chat.entries)||[]).filter(e=>e.date<t&&e.date>=addDays(t,-7))
+    .map(e=>({d:e.date,q:String(e.q||"").slice(0,200),a:String(e.a||"").slice(0,300)})).slice(-15);
   return out.length?"\n\nPAST CONVERSATIONS (last 7 days, oldest first — this is your shared history with Ollie; stay consistent with it and build on it):\n"+JSON.stringify(out):"";
 }
+/* ═══ DATA STORE (GitHub, v1.1) ═══ */
+const storeYear=()=>today().slice(0,4);
+function ghHead(){return {Authorization:"Bearer "+CFG.ghToken,Accept:"application/vnd.github+json","Content-Type":"application/json"}}
+async function ghGet(path){
+  const r=await fetch("https://api.github.com/repos/"+CFG.ghRepo+"/contents/"+encodeURI(path)+"?ref=main&_t="+Date.now(),{headers:ghHead()});
+  if(r.status===404)return null;
+  if(!r.ok)throw new Error("store read "+r.status);
+  const d=await r.json();
+  return {sha:d.sha,json:JSON.parse(decodeURIComponent(escape(atob((d.content||"").replace(/\n/g,"")))))};
+}
+async function ghPut(path,obj,sha,msg){
+  const body={message:msg||("app: update "+path),content:btoa(unescape(encodeURIComponent(JSON.stringify(obj,null,1))))};
+  if(sha)body.sha=sha;
+  return fetch("https://api.github.com/repos/"+CFG.ghRepo+"/contents/"+encodeURI(path),{method:"PUT",headers:ghHead(),body:JSON.stringify(body)});
+}
+async function storeMutate(kind,mutator,msg){
+  if(!CFG.ghToken)throw new Error("no data-store token — add it in setup");
+  const path="logs/"+kind+"/"+storeYear()+".json";
+  for(let i=0;i<3;i++){
+    const cur=(await ghGet(path))||{sha:null,json:{v:1,entries:[]}};
+    mutator(cur.json);
+    const r=await ghPut(path,cur.json,cur.sha,msg);
+    if(r.ok){S.store[kind]=cur.json;storeSnapshot();return true}
+    if(r.status!==409&&r.status!==422)throw new Error("store write "+r.status);
+    await new Promise(z=>setTimeout(z,600));
+  }
+  throw new Error("store conflict — try again");
+}
+function storeSnapshot(){try{localStorage.setItem("cos_store",JSON.stringify({ts:Date.now(),store:S.store}))}catch(_){}}
+async function loadStore(){
+  S.store={nutrition:{v:1,entries:[]},strength:{v:1,entries:[]},chat:{v:1,entries:[]}};
+  if(!CFG.ghToken){S.storeOffline="no-token";return}
+  try{
+    const [n,g,c]=await Promise.all([ghGet("logs/nutrition/"+storeYear()+".json"),ghGet("logs/strength/"+storeYear()+".json"),ghGet("logs/chat/"+storeYear()+".json")]);
+    if(n)S.store.nutrition=n.json; if(g)S.store.strength=g.json; if(c)S.store.chat=c.json;
+    S.storeOffline=null;storeSnapshot();
+  }catch(e){
+    const snap=JSON.parse(localStorage.getItem("cos_store")||"null");
+    if(snap){S.store=snap.store;S.storeOffline="snapshot"}else{S.storeOffline="unreachable"}
+  }
+}
+const uid=()=>"e"+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 /* notes helpers */
 function parseNotes(){S.notes=S.events.filter(e=>e.category==="NOTE"&&(e.name||"").startsWith("COS·")).map(e=>{let j=null;try{j=JSON.parse(e.description||"{}")}catch(_){j={raw:e.description}}return{id:e.id,name:e.name,date:(e.start_date_local||"").slice(0,10),j}})}
-const foodNotes=d=>S.notes.filter(n=>n.name==="COS·food"&&n.date===d);
+const foodNotes=d=>((S.store&&S.store.nutrition&&S.store.nutrition.entries)||[]).filter(e=>e.date===d&&!e.deleted).map(e=>({id:e.id,date:e.date,j:e}));
+const gymLogs=()=>((S.store&&S.store.strength&&S.store.strength.entries)||[]).map(e=>({date:e.date,j:e}));
 const coachNote=()=>S.notes.filter(n=>n.name==="COS·coach").sort((a,b)=>a.date<b.date?1:-1)[0];
 async function logChat(q,a){
-  try{
-    const t=today();
-    const ex=S.notes.find(n=>n.name==="COS·chat"&&n.date===t);
-    const entry={q:String(q).slice(0,300),a:String(a).slice(0,500),ts:Date.now()};
-    if(ex){
-      const prev=Array.isArray(ex.j.entries)?ex.j.entries:(ex.j.q?[{q:ex.j.q,a:ex.j.a,ts:ex.j.ts}]:[]);
-      const body=JSON.stringify({entries:[...prev.slice(-19),entry]});
-      await ic("/athlete/"+CFG.athlete+"/events/"+ex.id,{method:"PUT",body:JSON.stringify({description:body})});
-      const c=S.events.find(x=>x.id===ex.id);if(c)c.description=body;parseNotes();
-    }else{
-      await writeNote("COS·chat",{entries:[entry]});
-    }
-  }catch(_){}
+  try{await storeMutate("chat",j=>{j.entries.push({date:today(),q:String(q),a:String(a),ts:Date.now()})},"app: chat")}catch(_){}
 }
 async function writeNote(name,obj,date){
   const e=await ic("/athlete/"+CFG.athlete+"/events",{method:"POST",body:JSON.stringify({category:"NOTE",start_date_local:(date||today())+"T00:00:00",name,description:JSON.stringify(obj)})});
@@ -511,6 +540,7 @@ async function boot(){
         if(j.hrZones)CFG.hrZones=j.hrZones;
         if(j.lthr)CFG.lthr=j.lthr;}
     }catch(_){}
+    const storeP=loadStore();
     const [ath,wellness,acts,events,pc]=await Promise.all([
       ic("/athlete/"+CFG.athlete),
       ic("/athlete/"+CFG.athlete+"/wellness?oldest="+addDays(t,-90)+"&newest="+t),
@@ -526,6 +556,7 @@ async function boot(){
     S.weight=lastW?.weight||ath.icu_weight||CFG.weightFallback;
     parseNotes();
     $("loading").style.display="none";
+    await storeP;
     renderHeader();renderToday();renderPlan();renderProgress();renderFood();renderGym();renderCoach();
     retryTallies();
     showTab("today");
@@ -938,7 +969,7 @@ function renderProgress(){
   const pc=pcPoints();
   const wkg=S.ftp/S.weight;
   const dec=decoupSeries();
-  const gymNotes=S.notes.filter(n=>n.name==="COS·gym");
+  const gymNotes=gymLogs();
   const benchE1=gymNotes.map(n=>{const b=(n.j.exercises||[]).find(e=>/bench/i.test(e.name));if(!b)return null;
     const best=Math.max(...b.sets.map(s=>s.lb*(1+s.reps/30)));return{d:n.date,v:Math.round(best)}}).filter(Boolean);
   $("tab-progress").innerHTML=`
@@ -1028,6 +1059,7 @@ function powerCurveSvg(pc){
 /* ═══ FOOD ═══ */
 function renderFood(){
   const t=today();
+  const banner=S.storeOffline==="no-token"?'<div class="card" style="border-color:var(--warn)"><b style="font-size:13.5px">Data store not connected.</b><div style="font-size:12.5px;color:var(--ink-2);margin-top:4px">Food, gym and chat logging need your GitHub token. Re-open your setup link, or clear setup and paste all four keys.</div></div>':S.storeOffline?'<div class="card" style="border-color:var(--warn)"><b style="font-size:13.5px">Store unreachable — showing your last local copy.</b><div style="font-size:12.5px;color:var(--ink-2);margin-top:4px">Logging will fail until connection returns.</div></div>':"";
   const logs=foodNotes(t);
   const tot=logs.reduce((a,n)=>{const e=n.j.est||{};return{kcal:a.kcal+(e.kcal||0),p:a.p+(e.p||0),c:a.c+(e.c||0),f:a.f+(e.f||0),fib:a.fib+(e.fib||0)}},{kcal:0,p:0,c:0,f:0,fib:0});
   const evToday=S.events.filter(e=>e.category==="WORKOUT"&&e.start_date_local?.slice(0,10)===t);
@@ -1044,7 +1076,7 @@ function renderFood(){
     return{d,kcal:Math.round(ls.reduce((a,n)=>a+(n.j.est?.kcal||0),0)),burn:db,target:Math.max(2200,Math.round((db-400)/50)*50)}});
   const logged=hist.filter(h=>h.kcal>0);
   const netDef=logged.reduce((s,h)=>s+(h.kcal-h.burn),0);
-  $("tab-food").innerHTML=`
+  $("tab-food").innerHTML=banner+`
   <div class="card"><h2>Today <span class="when">target ${kcalTgt.toLocaleString()} kcal · est burn ${burn.toLocaleString()}</span></h2>
     <div class="inputbar" style="margin-bottom:10px"><input id="foodinput" placeholder="Log or amend — 'actually 3 burgers', 'remove the sardines'" onkeydown="if(event.key==='Enter')logFood()"><button class="ghost" style="flex:none" onclick="document.getElementById('foodphoto').click()">Photo</button><button onclick="logFood()">Log</button></div>
     <input type="file" id="foodphoto" accept="image/*" style="display:none" onchange="photoFood(this)">
@@ -1089,15 +1121,13 @@ async function logFood(){
   try{
     if(act&&act.items&&!act.est)act.est=sumItems(act.items);
     if(act&&act.action==="update"&&act.id){
-      const body=JSON.stringify({raw:act.raw,est:act.est,items:act.items||null,ts:Date.now()});
-      await ic("/athlete/"+CFG.athlete+"/events/"+act.id,{method:"PUT",body:JSON.stringify({description:body})});
-      const c=S.events.find(x=>x.id===act.id);if(c)c.description=body;
-      parseNotes();renderFood();toast("Updated · "+Math.round(act.est.kcal)+" kcal");
+      await storeMutate("nutrition",j=>{const e=j.entries.find(x=>x.id===String(act.id));if(e){e.raw=act.raw;e.est=act.est;e.items=act.items||null;e.ts=Date.now()}},"app: amend food");
+      renderFood();toast("Updated · "+Math.round(act.est.kcal)+" kcal");
     }else if(act&&act.action==="delete"&&act.id){
-      await deleteFood(act.id,true);toast("Entry removed");
+      await deleteFood(String(act.id),true);toast("Entry removed");
     }else{
       const est=(act&&act.est)||null;
-      await writeNote("COS·food",{raw:(act&&act.raw)||raw,est,items:(act&&act.items)||null,ts:Date.now()});
+      await storeMutate("nutrition",j=>{j.entries.push({id:uid(),date:today(),raw:(act&&act.raw)||raw,est,items:(act&&act.items)||null,ts:Date.now()})},"app: log food");
       renderFood();toast(est?`Logged · ${Math.round(est.kcal)} kcal, ${Math.round(est.p)}g protein`:"Logged — coach will tally");
     }
     $("foodbusy").innerHTML="";
@@ -1105,8 +1135,8 @@ async function logFood(){
 }
 async function deleteFood(id,quiet){
   try{
-    await ic("/athlete/"+CFG.athlete+"/events/"+id,{method:"DELETE"});
-    S.events=S.events.filter(x=>x.id!==id);parseNotes();renderFood();
+    await storeMutate("nutrition",j=>{j.entries=j.entries.filter(x=>x.id!==String(id))},"app: delete food");
+    renderFood();
     if(!quiet)toast("Entry removed");
   }catch(e){toast("Couldn't remove: "+e.message)}
 }
@@ -1127,7 +1157,7 @@ async function photoFood(input){
       {type:"text",text:'Identify this food and estimate macros for the visible portion. Break it into COMPONENT items with the portion weight/measure you assumed. JSON ONLY: {"desc":"<short meal name>","items":[{"n":"<component>","q":"<assumed qty>","kcal":n,"p":n,"c":n,"f":n,"fib":n},...]}'}]}],900,{light:true});
     const j=JSON.parse(r.match(/\{[\s\S]*\}/)[0]);
     j.est=j.est||sumItems(j.items);
-    await writeNote("COS·food",{raw:"[photo] "+j.desc,est:j.est,items:j.items||null,ts:Date.now()});
+    await storeMutate("nutrition",x=>{x.entries.push({id:uid(),date:today(),raw:"[photo] "+j.desc,est:j.est,items:j.items||null,ts:Date.now()})},"app: photo food");
     renderFood();toast(`Logged · ${Math.round(j.est.kcal)} kcal, ${Math.round(j.est.p)}g protein`);
     $("foodbusy").innerHTML="";
   }catch(e){$("foodbusy").innerHTML="";toast("Photo failed: "+e.message)}
@@ -1142,7 +1172,7 @@ const GYM_TEMPLATE=[
   {name:"Pallof press",scheme:"2 × 10 per side",sets:[[20,10],[20,10]]}];
 function renderGym(){
   const nextEv=S.events.filter(e=>e.category==="WORKOUT"&&e.type==="WeightTraining"&&e.start_date_local?.slice(0,10)>=today()).sort((a,b)=>a.start_date_local<b.start_date_local?-1:1)[0];
-  const lastLog=S.notes.filter(n=>n.name==="COS·gym").slice(-1)[0];
+  const lastLog=gymLogs().slice(-1)[0];
   $("tab-gym").innerHTML=`
   <div class="card"><h2>${nextEv?esc(nextEv.name.replace(/^.*·\s*/,""))+' <span class="when">'+dayName(nextEv.start_date_local.slice(0,10))+" "+nextEv.start_date_local.slice(8,10)+" · all lb</span>":"Upper A · all lb"}</h2>
     ${lastLog?`<div style="font-size:12px;color:var(--ink-3);margin-bottom:6px">last logged session: ${lastLog.date}</div>`:""}
@@ -1178,8 +1208,8 @@ async function saveGym(){
     sets:[...ex.querySelectorAll(".set.ok")].map(s=>{const [lb,reps]=[...s.querySelectorAll("input")].map(i=>+i.value);return{lb,reps}})
   })).filter(e=>e.sets.length);
   if(!exercises.length){toast("Tick the sets you completed first");return}
-  try{await writeNote("COS·gym",{exercises,ts:Date.now()});
-    toast("Session saved — "+exercises.reduce((a,e)=>a+e.sets.length,0)+" sets logged");renderProgress();
+  try{await storeMutate("strength",j=>{j.entries.push({date:today(),exercises,ts:Date.now()})},"app: gym session");
+    toast("Session saved — "+exercises.reduce((a,e)=>a+e.sets.length,0)+" sets logged");renderProgress();renderGym();
   }catch(e){toast("Couldn't save: "+e.message)}
 }
 /* ═══ COACH ═══ */
