@@ -188,7 +188,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.0.15</div>
+  <div class="footer-note">Coach OS v1.0.16</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -861,6 +861,55 @@ function pcPoints(){
   return Object.keys(pts).length?pts:null;
 }
 function decoupSeries(){return S.acts.filter(a=>["Ride","VirtualRide"].includes(a.type)&&a.decoupling!=null&&(a.moving_time||0)>=1800).map(a=>({d:a.start_date_local.slice(0,10),v:+a.decoupling.toFixed(1)})).reverse()}
+const COGGAN={s5:[11.26,13.04,14.81,16.59,18.66,20.44,22.22,24.00],m1:[6.10,6.79,7.48,8.17,8.97,9.66,10.35,11.04],m5:[2.74,3.36,3.98,4.60,5.33,5.95,6.57,7.19],ftp:[2.22,2.75,3.29,3.82,4.44,4.98,5.51,6.04]};
+const COGGAN_NAMES=["Untrained","Fair (Cat 5)","Moderate (Cat 4)","Good (Cat 3)","Very good (Cat 2)","Excellent (Cat 1)","Exceptional","World class"];
+function cogganRate(kg,row){let i=-1;row.forEach((v,j)=>{if(kg>=v)i=j});return{idx:i,name:i<0?"Below scale":COGGAN_NAMES[i],pct:Math.max(2,Math.min(98,100*(kg-row[0])/(row[row.length-1]-row[0])))}}
+function fitChart(){
+  const wl=S.wellness.filter(w=>w.ctl!=null&&w.atl!=null);
+  if(wl.length<7)return '<div style="font-size:12px;color:var(--ink-3)">no data yet</div>';
+  const W=320,H=130,pl=10,pr=34,pt=12,pb=20;
+  const ys=wl.flatMap(w=>[w.ctl,w.atl]);
+  const ymax=Math.max(...ys)*1.1,ymin=0;
+  const X=i=>pl+(i/(wl.length-1))*(W-pl-pr);
+  const Y=v=>pt+(1-(v-ymin)/(ymax-ymin))*(H-pt-pb);
+  const line=(key,col,wd)=>'<polyline points="'+wl.map((w,i)=>X(i).toFixed(1)+","+Y(w[key]).toFixed(1)).join(" ")+'" fill="none" stroke="'+col+'" stroke-width="'+wd+'" stroke-linejoin="round"/>';
+  const last=wl[wl.length-1],form=Math.round(last.ctl-last.atl);
+  const fc=form>=5?"var(--good-text)":form>=-10?"var(--ink-2)":form>=-30?"var(--warn)":"var(--crit)";
+  const fl=form>=5?"fresh":form>=-10?"neutral":form>=-30?"productive fatigue":"overreaching";
+  let out='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="fitness and fatigue trend">';
+  out+='<line x1="'+pl+'" y1="'+(H-pb)+'" x2="'+(W-pr)+'" y2="'+(H-pb)+'" stroke="var(--axis)" stroke-width="1"/>';
+  out+=line("atl","var(--z5)",1.5)+line("ctl","var(--accent)",2.5);
+  out+='<text x="'+(W-pr+3)+'" y="'+(Y(last.ctl)+3).toFixed(1)+'" font-size="10" font-weight="700" fill="var(--accent)">'+Math.round(last.ctl)+'</text>';
+  out+='<text x="'+(W-pr+3)+'" y="'+(Y(last.atl)+3).toFixed(1)+'" font-size="10" fill="var(--z5)">'+Math.round(last.atl)+'</text>';
+  out+='<text x="'+pl+'" y="'+(H-6)+'" font-size="10" fill="var(--ink-3)">'+esc(wl[0].id.slice(5))+'</text><text x="'+(W-pr)+'" y="'+(H-6)+'" text-anchor="end" font-size="10" fill="var(--ink-3)">'+esc(last.id.slice(5))+'</text>';
+  out+='</svg>';
+  return out+'<div class="rowline" style="margin-top:4px"><span style="font-size:12.5px"><i style="display:inline-block;width:9px;height:3px;background:var(--accent);border-radius:2px;vertical-align:middle"></i> Fitness '+Math.round(last.ctl)+' &nbsp; <i style="display:inline-block;width:9px;height:3px;background:var(--z5);border-radius:2px;vertical-align:middle"></i> Fatigue '+Math.round(last.atl)+'</span><span style="font-size:12.5px;font-weight:700;color:'+fc+'">Form '+(form>0?"+":"")+form+' · '+fl+'</span></div>';
+}
+function weeklyEffort(){
+  const t=today();
+  const wkOf=d=>{const x=new Date(d+"T12:00:00");const g=(x.getDay()+6)%7;x.setDate(x.getDate()-g);return x.toISOString().slice(0,10)};
+  const m={};
+  S.acts.forEach(a=>{const d=a.start_date_local?.slice(0,10);if(!d)return;const w=wkOf(d);m[w]=(m[w]||0)+(a.icu_training_load||0)});
+  const wks=Object.keys(m).sort().slice(-8);
+  if(wks.length<3)return '<div style="font-size:12px;color:var(--ink-3)">no data yet</div>';
+  const W=320,H=110,pl=10,pr=10,pt=14,pb=18,gap=6;
+  const bw=(W-pl-pr-gap*(wks.length-1))/wks.length;
+  const vmax=Math.max(...wks.map(w=>m[w]))*1.15||1;
+  const Y=v=>pt+(1-v/vmax)*(H-pt-pb);
+  let out='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="weekly training effort">';
+  wks.forEach((w,i)=>{
+    const prev=wks.slice(Math.max(0,i-4),i).map(x=>m[x]);
+    const avg=prev.length>=2?prev.reduce((a,b)=>a+b,0)/prev.length:null;
+    const cur=w===wkOf(t);
+    let col="var(--accent)";
+    if(avg!=null){if(m[w]>avg*1.35)col="var(--crit)";else if(m[w]>avg*1.15)col="var(--warn)";else if(m[w]<avg*0.6)col="var(--axis)"}
+    const x=pl+i*(bw+gap);
+    out+='<rect x="'+x.toFixed(1)+'" y="'+Y(m[w]).toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+((H-pb)-Y(m[w])).toFixed(1)+'" rx="3" fill="'+col+'"'+(cur?' opacity="0.55"':'')+'/>';
+    out+='<text x="'+(x+bw/2).toFixed(1)+'" y="'+(Y(m[w])-3).toFixed(1)+'" text-anchor="middle" font-size="9" fill="var(--ink-3)">'+Math.round(m[w])+'</text>';
+    out+='<text x="'+(x+bw/2).toFixed(1)+'" y="'+(H-5)+'" text-anchor="middle" font-size="8.5" fill="var(--ink-3)">'+w.slice(5)+'</text>';
+  });
+  return out+'</svg>';
+}
 function renderProgress(){
   const pc=pcPoints();
   const wkg=S.ftp/S.weight;
@@ -877,17 +926,23 @@ function renderProgress(){
       <div class="seg"><button id="r30" class="on" onclick="setRange(30)">30 d</button><button id="r90" onclick="setRange(90)">90 d</button></div></div>
     <div class="hero" id="trendHero"></div><div class="chart-wrap" id="trendChart"></div>
     <div id="trendNote" style="font-size:12px; color:var(--ink-3); margin-top:6px"></div></div>
+  <div class="card"><h2>Fitness &amp; form <span class="when">last 90 days</span></h2>
+    <div class="chart-wrap">${fitChart()}</div>
+    <div style="font-size:11.5px; color:var(--ink-3); margin-top:5px">Fitness = 42-day load average (CTL). Fatigue = 7-day (ATL). Form = fitness − fatigue: positive = fresh (race-ready), −10 to −30 = productive training, below −30 = overreaching.</div></div>
+  <div class="card"><h2>Weekly effort <span class="when">training load per week</span></h2>
+    <div class="chart-wrap">${weeklyEffort()}</div>
+    <div class="legend" style="margin-top:4px"><span><i style="background:var(--accent)"></i>in range</span><span><i style="background:var(--warn)"></i>big week</span><span><i style="background:var(--crit)"></i>&gt;135% of recent avg</span><span><i style="background:var(--axis)"></i>light</span></div></div>
   ${pc?`<div class="card"><h2>Power curve <span class="when">last 42 days · FTP ${S.ftp}</span></h2>
     <div class="chart-wrap">${powerCurveSvg(pc)}</div>
     <div class="legend"><span><i style="background:var(--accent)"></i>Best efforts, 42 d</span>
     <span><i style="background:color-mix(in srgb,var(--accent) 18%, transparent); outline:1px solid var(--accent)"></i>Durability block target zone</span></div>
     ${coachNote()?.j?.curve_read?`<div class="coach-note">${coachNote().j.curve_read}<span class="dyn">↻ Coach · ${coachNote().date}</span></div>`:""}</div>
-  <div class="card"><h2>Power skills <span class="when">W/kg by duration · @ ${S.weight.toFixed(1)} kg</span></h2>
-    ${[[5,"Sprint · 5 s","z7",22],[60,"Anaerobic · 1 min","z5",9.5],[300,"VO2 · 5 min","z4",6.5],[1200,"Threshold · 20 min","z3",5.2,true],[3600,"Endurance · 60 min","z2",4.6,true]]
-      .map(([s,l,c,ceil,focus])=>{const w=pc[s];if(!w)return"";const kg=w/S.weight;
-      return`<div class="skill${focus?" focus":""}"><div class="top"><b>${l}</b><span>${kg.toFixed(1)} W/kg${focus?" ← block focus":""}</span></div>
-      <div class="bar"><i style="width:${Math.min(96,Math.round(100*kg/ceil))}%; background:var(--${c})"></i></div></div>`}).join("")}
-    <div style="font-size:11px; color:var(--ink-3); margin-top:4px">Bars scaled vs Coggan power-profile upper bounds per duration.</div></div>`:""}
+  <div class="card"><h2>Power skills <span class="when">Coggan scale · @ ${S.weight.toFixed(1)} kg</span></h2>
+    ${[["s5",pc[5],"Sprint · 5 s","z7"],["m1",pc[60],"Anaerobic · 1 min","z5"],["m5",pc[300],"VO2 · 5 min","z4"],["ftp",S.ftp,"Threshold · FTP","z3"]]
+      .map(([key,w,l,c])=>{if(!w)return"";const kg=w/S.weight;const r=cogganRate(kg,COGGAN[key]);
+      return`<div class="skill"><div class="top"><b>${l}</b><span>${kg.toFixed(1)} W/kg · <b>${r.name}</b></span></div>
+      <div class="bar" style="position:relative"><i style="width:${Math.round(r.pct)}%; background:var(--${c})"></i></div></div>`}).join("")}
+    <div style="font-size:11px; color:var(--ink-3); margin-top:4px">Scale: Coggan/Allen power-profile reference (Untrained → World class). Your bests are race-derived — several are sub-maximal; Test Week (W35) sets true numbers. Every kg lost moves every rating up.</div></div>`:""}
   <div class="card"><h2>Durability — the block KPI <span class="when">decoupling, rides ≥30 min</span></h2>
     <div class="chart-wrap">${lineChart(dec.map((p,i)=>[i,p.v]),{refs:[8],refLabels:["8%"],xlab:[dec[0]?.d.slice(5)||"",dec[dec.length-1]?.d.slice(5)||""],label:"Decoupling trend vs 8 percent target"})}</div>
     ${coachNote()?.j?.kpi_read?`<div class="coach-note">${coachNote().j.kpi_read}<span class="dyn">↻ Coach · ${coachNote().date}</span></div>`:""}</div>
