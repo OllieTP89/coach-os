@@ -188,7 +188,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.1.0</div>
+  <div class="footer-note">Coach OS v1.1.1</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -442,6 +442,14 @@ function liveContext(){
     foodToday:foodNotes(today()).map(n=>n.j),
     latestCoachNote:coachNote()?.j||null,
     lastGymLog:gymLogs().slice(-1).map(n=>({exercises:n.j.exercises,date:n.date}))[0]||null});
+}
+function saveGhTok(){
+  const g=($("ghtok").value||"").trim();
+  if(!g){toast("Paste the token first");return}
+  CFG.ghToken=g;
+  try{const c=JSON.parse(localStorage.getItem("cos_creds")||"{}");c.g=g;localStorage.setItem("cos_creds",JSON.stringify(c));}catch(_){}
+  toast("Connecting…");
+  loadStore().then(()=>{renderFood();renderGym();renderCoach();toast(S.storeOffline?"Still can't reach the store — check the token":"Data store connected ✓")});
 }
 function setPlanView(v){S.planView=v;renderPlan()}
 async function retryTallies(){
@@ -1059,7 +1067,7 @@ function powerCurveSvg(pc){
 /* ═══ FOOD ═══ */
 function renderFood(){
   const t=today();
-  const banner=S.storeOffline==="no-token"?'<div class="card" style="border-color:var(--warn)"><b style="font-size:13.5px">Data store not connected.</b><div style="font-size:12.5px;color:var(--ink-2);margin-top:4px">Food, gym and chat logging need your GitHub token. Re-open your setup link, or clear setup and paste all four keys.</div></div>':S.storeOffline?'<div class="card" style="border-color:var(--warn)"><b style="font-size:13.5px">Store unreachable — showing your last local copy.</b><div style="font-size:12.5px;color:var(--ink-2);margin-top:4px">Logging will fail until connection returns.</div></div>':"";
+  const banner=S.storeOffline==="no-token"?'<div class="card" style="border-color:var(--warn)"><b style="font-size:13.5px">Data store not connected</b><div style="font-size:12.5px;color:var(--ink-2);margin:4px 0 8px">Paste your GitHub data-store token (github_pat_…) — saved on this device only.</div><input id="ghtok" placeholder="github_pat_…" style="width:100%;border:0.5px solid var(--border);background:var(--card);border-radius:9px;padding:10px 12px;font-size:16px;color:var(--ink);margin-bottom:8px"><button class="primary" onclick="saveGhTok()">Connect data store</button></div>':S.storeOffline?'<div class="card" style="border-color:var(--warn)"><b style="font-size:13.5px">Store unreachable — showing your last local copy.</b><div style="font-size:12.5px;color:var(--ink-2);margin-top:4px">Logging will fail until connection returns.</div></div>':"";
   const logs=foodNotes(t);
   const tot=logs.reduce((a,n)=>{const e=n.j.est||{};return{kcal:a.kcal+(e.kcal||0),p:a.p+(e.p||0),c:a.c+(e.c||0),f:a.f+(e.f||0),fib:a.fib+(e.fib||0)}},{kcal:0,p:0,c:0,f:0,fib:0});
   const evToday=S.events.filter(e=>e.category==="WORKOUT"&&e.start_date_local?.slice(0,10)===t);
