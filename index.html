@@ -188,7 +188,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.0.14</div>
+  <div class="footer-note">Coach OS v1.0.15</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -447,10 +447,11 @@ async function retryTallies(){
     let fixed=0;
     for(const n of pend){
       try{
-        const r=await coachAI([{role:"user",content:`Estimate macros for this food log entry: "${n.j.raw}". If it is actual food/drink reply JSON ONLY {"est":{"kcal":n,"p":n,"c":n,"f":n,"fib":n}}. If it is a correction/instruction rather than food, reply {"est":null}.`}],500,{light:true});
-        const est=JSON.parse(r.match(/\{[\s\S]*\}/)[0]).est;
-        if(!est||est.kcal==null)continue;
-        const body=JSON.stringify({...n.j,est});
+        const r=await coachAI([{role:"user",content:`Estimate macros for this food log entry: "${n.j.raw}". If it is actual food/drink, break it into COMPONENT items with assumed portions and reply JSON ONLY {"items":[{"n":"<component>","q":"<assumed qty>","kcal":n,"p":n,"c":n,"f":n,"fib":n},...]}. If it is a correction/instruction rather than food, reply {"items":null}.`}],700,{light:true});
+        const items=JSON.parse(r.match(/\{[\s\S]*\}/)[0]).items;
+        if(!items||!items.length)continue;
+        const est=sumItems(items);
+        const body=JSON.stringify({...n.j,est,items});
         await ic("/athlete/"+CFG.athlete+"/events/"+n.id,{method:"PUT",body:JSON.stringify({description:body})});
         const c=S.events.find(x=>x.id===n.id);if(c)c.description=body;fixed++;
       }catch(_){}
@@ -974,7 +975,7 @@ function renderFood(){
     ${bar("Fibre",tot.fib,CFG.targets.fibre,"g","var(--z2)")}
     ${logs.length?`<details style="margin-top:6px"><summary style="font-size:12.5px; color:var(--ink-3); cursor:pointer">Review today's log (${logs.length} entries)</summary>
       <div style="margin-top:8px">${logs.map(n=>`<div class="rowline" style="padding:6px 0; border-bottom:0.5px solid var(--border)">
-        <div style="font-size:12.5px; color:var(--ink-2); min-width:0">${esc(n.j.raw||"")}<div style="color:var(--ink-3); font-size:11px">${n.j.est?Math.round(n.j.est.kcal)+" kcal · "+Math.round(n.j.est.p)+"g P · "+Math.round(n.j.est.c)+"g C · "+Math.round(n.j.est.f)+"g F":"coach will tally"}</div></div>
+        <div style="font-size:12.5px; color:var(--ink-2); min-width:0">${esc(n.j.raw||"")}<div style="color:var(--ink-3); font-size:11px">${n.j.est?Math.round(n.j.est.kcal)+" kcal · "+Math.round(n.j.est.p)+"g P · "+Math.round(n.j.est.c)+"g C · "+Math.round(n.j.est.f)+"g F":"coach will tally"}</div>${(n.j.items&&n.j.items.length)?`<div style="margin-top:3px; border-left:2px solid var(--border); padding-left:7px">${n.j.items.map(it=>`<div style="font-size:11px; color:var(--ink-3); padding:1px 0">${esc(it.n)}${it.q?` <span style="opacity:.75">(${esc(it.q)})</span>`:""} · ${Math.round(it.kcal)} kcal · ${Math.round(it.p||0)}g P</div>`).join("")}</div>`:""}</div>
         <button class="ghost" style="padding:4px 10px; font-size:13px; flex:none" onclick="deleteFood(${n.id})" aria-label="remove entry">✕</button>
       </div>`).join("")}</div></details>`:`<div style="font-size:12.5px;color:var(--ink-3);margin-top:6px">Nothing logged yet today.</div>`}
   </div>
@@ -994,18 +995,20 @@ function renderFood(){
     <div class="legend"><span><i style="background:var(--accent)"></i>intake</span><span><i style="background:var(--axis); opacity:0.5"></i>est burn</span><span><i style="background:var(--ink-2); height:2px; border-radius:0"></i>target</span><span><i style="background:var(--crit)"></i>over burn</span></div>
     ${coachNote()?.j?.food_read?`<div class="coach-note">${coachNote().j.food_read}<span class="dyn">↻ Coach · ${coachNote().date}</span></div>`:""}</div>`;
 }
+function sumItems(items){const t={kcal:0,p:0,c:0,f:0,fib:0};(items||[]).forEach(i=>{t.kcal+=i.kcal||0;t.p+=i.p||0;t.c+=i.c||0;t.f+=i.f||0;t.fib+=i.fib||0});return t}
 async function logFood(){
   const inp=$("foodinput");const raw=inp.value.trim();if(!raw)return;
   inp.value="";$("foodbusy").innerHTML='<div style="font-size:12px;color:var(--ink-3);margin-bottom:8px"><span class="spin"></span>working…</div>';
-  const entries=foodNotes(today()).map(n=>({id:n.id,raw:n.j.raw,est:n.j.est}));
+  const entries=foodNotes(today()).map(n=>({id:n.id,raw:n.j.raw,est:n.j.est,items:n.j.items||undefined}));
   let act=null;
   try{
-    const r=await coachAI([{role:"user",content:`Today's food log: ${JSON.stringify(entries)}\nUser says: "${raw}"\nReply JSON ONLY. Adding food: {"action":"add","raw":"<cleaned item text>","est":{"kcal":n,"p":n,"c":n,"f":n,"fib":n}}. Correcting an existing entry (re-estimate the WHOLE corrected entry): {"action":"update","id":<id>,"raw":"<corrected text>","est":{...}}. Removing an entry: {"action":"delete","id":<id>}.`}],700,{light:true});
+    const r=await coachAI([{role:"user",content:`Today's food log: ${JSON.stringify(entries)}\nUser says: "${raw}"\nReply JSON ONLY, no other text. Break every meal into COMPONENT items with the portion weight/measure you assumed. Adding food: {"action":"add","raw":"<short meal name>","items":[{"n":"<component>","q":"<assumed qty e.g. 100g dry, 2 large, 1 tbsp>","kcal":n,"p":n,"c":n,"f":n,"fib":n},...]}. Correcting an existing entry (return the FULL corrected items list, adjusting only what changed): {"action":"update","id":<id>,"raw":"<name>","items":[...]}. Removing an entry: {"action":"delete","id":<id>}.`}],900,{light:true});
     act=JSON.parse(r.match(/\{[\s\S]*\}/)[0]);
   }catch(_){}
   try{
+    if(act&&act.items&&!act.est)act.est=sumItems(act.items);
     if(act&&act.action==="update"&&act.id){
-      const body=JSON.stringify({raw:act.raw,est:act.est,ts:Date.now()});
+      const body=JSON.stringify({raw:act.raw,est:act.est,items:act.items||null,ts:Date.now()});
       await ic("/athlete/"+CFG.athlete+"/events/"+act.id,{method:"PUT",body:JSON.stringify({description:body})});
       const c=S.events.find(x=>x.id===act.id);if(c)c.description=body;
       parseNotes();renderFood();toast("Updated · "+Math.round(act.est.kcal)+" kcal");
@@ -1013,7 +1016,7 @@ async function logFood(){
       await deleteFood(act.id,true);toast("Entry removed");
     }else{
       const est=(act&&act.est)||null;
-      await writeNote("COS·food",{raw:(act&&act.raw)||raw,est,ts:Date.now()});
+      await writeNote("COS·food",{raw:(act&&act.raw)||raw,est,items:(act&&act.items)||null,ts:Date.now()});
       renderFood();toast(est?`Logged · ${Math.round(est.kcal)} kcal, ${Math.round(est.p)}g protein`:"Logged — coach will tally");
     }
     $("foodbusy").innerHTML="";
@@ -1040,9 +1043,10 @@ async function photoFood(input){
       fr.onerror=rej;fr.readAsDataURL(f);});
     const r=await coachAI([{role:"user",content:[
       {type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},
-      {type:"text",text:'Identify this food and estimate macros for the visible portion. JSON ONLY: {"desc":"<short item list>","est":{"kcal":n,"p":n,"c":n,"f":n,"fib":n}}'}]}],700,{light:true});
+      {type:"text",text:'Identify this food and estimate macros for the visible portion. Break it into COMPONENT items with the portion weight/measure you assumed. JSON ONLY: {"desc":"<short meal name>","items":[{"n":"<component>","q":"<assumed qty>","kcal":n,"p":n,"c":n,"f":n,"fib":n},...]}'}]}],900,{light:true});
     const j=JSON.parse(r.match(/\{[\s\S]*\}/)[0]);
-    await writeNote("COS·food",{raw:"[photo] "+j.desc,est:j.est,ts:Date.now()});
+    j.est=j.est||sumItems(j.items);
+    await writeNote("COS·food",{raw:"[photo] "+j.desc,est:j.est,items:j.items||null,ts:Date.now()});
     renderFood();toast(`Logged · ${Math.round(j.est.kcal)} kcal, ${Math.round(j.est.p)}g protein`);
     $("foodbusy").innerHTML="";
   }catch(e){$("foodbusy").innerHTML="";toast("Photo failed: "+e.message)}
