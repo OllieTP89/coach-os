@@ -188,7 +188,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.0.13</div>
+  <div class="footer-note">Coach OS v1.0.14</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -277,9 +277,14 @@ async function coachAI(messages,maxTokens=500,opts={}){
 async function coachAIRaw(messages,maxTokens,opts={}){
   const body={model:CFG.anthModel,max_tokens:maxTokens,system:opts.light?"You estimate food macros.":CFG.brief+(CFG.dossier?"\n\nATHLETE DOSSIER (deep context — ground every answer in this, never give generic advice that contradicts it):\n"+CFG.dossier:"")+"\n\nLIVE DATA:\n"+liveContext()+pastConvos(),messages};
   if(opts.tools)body.tools=opts.tools;
-  const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{
+  if(opts.light)body.thinking={type:"disabled"};
+  const ctl=new AbortController();const tmr=setTimeout(()=>ctl.abort(),opts.light?25000:90000);
+  let r;try{
+  r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",signal:ctl.signal,headers:{
     "x-api-key":CFG.anthKey,"anthropic-version":"2023-06-01","content-type":"application/json",
     "anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify(body)});
+  }catch(e){clearTimeout(tmr);throw new Error(e.name==="AbortError"?"request timed out":e.message)}
+  clearTimeout(tmr);
   const d=await r.json().catch(()=>null);
   if(!r.ok||!d||d.type==="error")throw new Error((d&&d.error&&d.error.message)||("coach api "+r.status));
   return d;
@@ -442,7 +447,7 @@ async function retryTallies(){
     let fixed=0;
     for(const n of pend){
       try{
-        const r=await coachAI([{role:"user",content:`Estimate macros for this food log entry: "${n.j.raw}". If it is actual food/drink reply JSON ONLY {"est":{"kcal":n,"p":n,"c":n,"f":n,"fib":n}}. If it is a correction/instruction rather than food, reply {"est":null}.`}],200,{light:true});
+        const r=await coachAI([{role:"user",content:`Estimate macros for this food log entry: "${n.j.raw}". If it is actual food/drink reply JSON ONLY {"est":{"kcal":n,"p":n,"c":n,"f":n,"fib":n}}. If it is a correction/instruction rather than food, reply {"est":null}.`}],500,{light:true});
         const est=JSON.parse(r.match(/\{[\s\S]*\}/)[0]).est;
         if(!est||est.kcal==null)continue;
         const body=JSON.stringify({...n.j,est});
@@ -995,7 +1000,7 @@ async function logFood(){
   const entries=foodNotes(today()).map(n=>({id:n.id,raw:n.j.raw,est:n.j.est}));
   let act=null;
   try{
-    const r=await coachAI([{role:"user",content:`Today's food log: ${JSON.stringify(entries)}\nUser says: "${raw}"\nReply JSON ONLY. Adding food: {"action":"add","raw":"<cleaned item text>","est":{"kcal":n,"p":n,"c":n,"f":n,"fib":n}}. Correcting an existing entry (re-estimate the WHOLE corrected entry): {"action":"update","id":<id>,"raw":"<corrected text>","est":{...}}. Removing an entry: {"action":"delete","id":<id>}.`}],350,{light:true});
+    const r=await coachAI([{role:"user",content:`Today's food log: ${JSON.stringify(entries)}\nUser says: "${raw}"\nReply JSON ONLY. Adding food: {"action":"add","raw":"<cleaned item text>","est":{"kcal":n,"p":n,"c":n,"f":n,"fib":n}}. Correcting an existing entry (re-estimate the WHOLE corrected entry): {"action":"update","id":<id>,"raw":"<corrected text>","est":{...}}. Removing an entry: {"action":"delete","id":<id>}.`}],700,{light:true});
     act=JSON.parse(r.match(/\{[\s\S]*\}/)[0]);
   }catch(_){}
   try{
@@ -1035,7 +1040,7 @@ async function photoFood(input){
       fr.onerror=rej;fr.readAsDataURL(f);});
     const r=await coachAI([{role:"user",content:[
       {type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},
-      {type:"text",text:'Identify this food and estimate macros for the visible portion. JSON ONLY: {"desc":"<short item list>","est":{"kcal":n,"p":n,"c":n,"f":n,"fib":n}}'}]}],350,{light:true});
+      {type:"text",text:'Identify this food and estimate macros for the visible portion. JSON ONLY: {"desc":"<short item list>","est":{"kcal":n,"p":n,"c":n,"f":n,"fib":n}}'}]}],700,{light:true});
     const j=JSON.parse(r.match(/\{[\s\S]*\}/)[0]);
     await writeNote("COS·food",{raw:"[photo] "+j.desc,est:j.est,ts:Date.now()});
     renderFood();toast(`Logged · ${Math.round(j.est.kcal)} kcal, ${Math.round(j.est.p)}g protein`);
