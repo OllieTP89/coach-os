@@ -188,7 +188,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.1.1</div>
+  <div class="footer-note">Coach OS v1.1.2</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -219,7 +219,8 @@ const CFG={
     const h=new URLSearchParams(location.hash.slice(1));
     if(h.get("i")&&h.get("n")&&h.get("a")){
       CFG.athlete=h.get("a");CFG.icKey=h.get("i");CFG.anthKey=h.get("n");
-      if(h.get("g"))CFG.ghToken=h.get("g");
+      if(h.get("g")){CFG.ghToken=h.get("g")}
+      else{try{const prev=JSON.parse(localStorage.getItem("cos_creds")||"{}");if(prev.g)CFG.ghToken=prev.g}catch(_){}}
       localStorage.setItem("cos_creds",JSON.stringify({a:CFG.athlete,i:CFG.icKey,n:CFG.anthKey,g:CFG.ghToken}));
     }else{
       const s=JSON.parse(localStorage.getItem("cos_creds")||"null");
