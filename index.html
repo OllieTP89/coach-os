@@ -188,7 +188,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.2.0</div>
+  <div class="footer-note">Coach OS v1.2.1</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -510,8 +510,8 @@ async function loadStore(){
   S.store={nutrition:{v:1,entries:[]},strength:{v:1,entries:[]},chat:{v:1,entries:[]}};
   if(!CFG.ghToken){S.storeOffline="no-token";return}
   try{
-    const [n,g,c]=await Promise.all([ghGet("logs/nutrition/"+storeYear()+".json"),ghGet("logs/strength/"+storeYear()+".json"),ghGet("logs/chat/"+storeYear()+".json")]);
-    if(n)S.store.nutrition=n.json; if(g)S.store.strength=g.json; if(c)S.store.chat=c.json;
+    const [n,g,c,rv]=await Promise.all([ghGet("logs/nutrition/"+storeYear()+".json"),ghGet("logs/strength/"+storeYear()+".json"),ghGet("logs/chat/"+storeYear()+".json"),ghGet("logs/recovery/"+storeYear()+".json")]);
+    if(n)S.store.nutrition=n.json; if(g)S.store.strength=g.json; if(c)S.store.chat=c.json; if(rv)S.store.recovery=rv.json;
     S.storeOffline=null;storeSnapshot();
   }catch(e){
     const snap=JSON.parse(localStorage.getItem("cos_store")||"null");
@@ -679,6 +679,12 @@ function calibBase(){
   return {base,cal:true,note:"calibrated from your scale — "+logged.length+" logged days over "+Math.round(days)+"d, "+(dKg<0?"-":"+")+Math.abs(dKg).toFixed(1)+" kg"};
 }
 function renderToday(){
+  try{const t0=today();const sr=(((S.store||{}).recovery||{}).entries||[]).find(e=>e.date===t0);
+    if(sr&&sr.readiness!=null){
+      let wr=S.wellness.find(x=>x.id===t0);
+      if(!wr){wr={id:t0};S.wellness.push(wr)}
+      if(wr.readiness==null){wr.readiness=sr.readiness;wr.hrv=wr.hrv??sr.hrv;wr.restingHR=wr.restingHR??sr.rhr;wr.sleepSecs=wr.sleepSecs??(sr.sleepH!=null?Math.round(sr.sleepH*3600):null);}
+    }}catch(_){}
   const wRow=S.wellness[S.wellness.length-1]||{};
   const w=wRow.readiness!=null?wRow:([...S.wellness].reverse().find(x=>x.readiness!=null)||wRow);
   const stale=w!==wRow&&w.id!==wRow.id;
