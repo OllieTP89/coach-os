@@ -156,6 +156,8 @@ nav.tabbar button.active{color:var(--accent)}
 #tab-coach .chat{flex:1; max-height:none; min-height:180px}
 body.kb nav.tabbar{display:none}
 #loading{padding:40px 20px; text-align:center; color:var(--ink-3); font-size:14px}
+#ptr{position:fixed; top:calc(env(safe-area-inset-top)); left:0; right:0; text-align:center; font-size:11.5px; color:var(--ink-3); letter-spacing:0.08em; text-transform:uppercase; padding:8px; transform:translateY(-110%); transition:transform .15s; z-index:700; pointer-events:none}
+#updbar{display:none; background:var(--accent-soft); color:var(--accent); font-size:12.5px; padding:9px 14px; border-radius:10px; margin:0 12px 10px; cursor:pointer; border:1px solid color-mix(in srgb, var(--accent) 30%, transparent)}
 #errbanner{display:none; background:color-mix(in srgb, var(--crit) 12%, transparent); color:var(--crit); font-size:12.5px; padding:8px 14px; border-radius:10px; margin:0 12px 10px}
 .spin{display:inline-block; width:14px; height:14px; border:2px solid var(--axis); border-top-color:var(--accent); border-radius:50%; animation:sp 0.8s linear infinite; vertical-align:-2px; margin-right:6px}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -169,6 +171,8 @@ body.kb nav.tabbar{display:none}
   </div>
   <span class="block-badge" id="hdrbadge"></span>
 </header>
+<div id="ptr" aria-hidden="true">↓ pull to refresh</div>
+<div id="updbar" onclick="doUpdate()"></div>
 <div id="errbanner"></div>
 <main>
   <div id="loading"><span class="spin"></span>Pulling live data from intervals.icu…</div>
@@ -179,7 +183,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.4.3</div>
+  <div class="footer-note">Coach OS v1.5.0</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -589,7 +593,11 @@ async function boot(){
   try{
     const t=today();
     try{
-      const bn=await ic("/athlete/"+CFG.athlete+"/events?oldest=2026-01-01&newest=2026-01-02");
+      let bn=null;
+      for(let i=0;i<3&&!bn;i++){
+        try{bn=await ic("/athlete/"+CFG.athlete+"/events?oldest=2026-01-01&newest=2026-01-02")}
+        catch(_){await new Promise(z=>setTimeout(z,800))}
+      }
       const briefEv=(bn||[]).find(e=>e.name==="COS\u00b7brief");
       if(briefEv){const j=JSON.parse(briefEv.description||"{}");
         CFG.briefId=briefEv.id;CFG.briefRaw=j;
@@ -621,12 +629,80 @@ async function boot(){
     renderHeader();renderToday();renderPlan();renderProgress();renderFood();renderGym();renderCoach();
     retryTallies();
     showTab("today");
+    checkUpdate();
   }catch(err){
     $("loading").style.display="none";
     const b=$("errbanner");b.style.display="block";
     b.textContent="Couldn't reach live data ("+err.message+"). Check connection and refresh.";
   }
 }
+/* ═══ REFRESH + UPDATE (v1.5) ═══ */
+async function refreshAll(){
+  const t=today();
+  const storeP=loadStore();
+  const [ath,wellness,acts,events,pc]=await Promise.all([
+    ic("/athlete/"+CFG.athlete),
+    ic("/athlete/"+CFG.athlete+"/wellness?oldest="+addDays(t,-90)+"&newest="+t),
+    ic("/athlete/"+CFG.athlete+"/activities?oldest="+addDays(t,-60)+"&newest="+addDays(t,1)),
+    ic("/athlete/"+CFG.athlete+"/events?oldest="+addDays(t,-28)+"&newest="+addDays(t,28)),
+    ic("/athlete/"+CFG.athlete+"/power-curves?curves=42d,all&type=Ride").catch(()=>null)
+  ]);
+  S.athlete=ath;S.wellness=wellness;S.acts=acts;S.events=events;S.pcurve=pc;
+  const rideSet=(ath.sportSettings||[]).find(s=>(s.types||[]).includes("Ride"));
+  S.ftp=rideSet?.ftp||CFG.ftpFallback;
+  S.pz=(rideSet?.power_zones||[55,75,90,105,120,150,999]).map(p=>p/100);
+  const lastW=[...wellness].reverse().find(w=>w.weight);
+  S.weight=lastW?.weight||ath.icu_weight||CFG.weightFallback;
+  await storeP;
+  parseNotes();renderHeader();renderToday();renderPlan();renderProgress();renderFood();renderGym();
+  checkUpdate();
+}
+function appVersion(){return (document.querySelector(".footer-note")?.textContent.match(/v([0-9.]+)/)||[])[1]||null}
+async function checkUpdate(){
+  try{
+    const r=await fetch(location.pathname+"?upd="+Date.now(),{cache:"no-store"});
+    if(!r.ok)return;
+    const m=(await r.text()).match(/Coach OS v([0-9.]+)/);
+    const cur=appVersion();
+    if(m&&cur&&m[1]!==cur){
+      const b=$("updbar");b.style.display="block";
+      b.innerHTML=`New version v${m[1]} is out (you're on v${cur}) — <b>tap to update</b>`;
+    }
+  }catch(_){}
+}
+async function doUpdate(){
+  const b=$("updbar");b.innerHTML='<span class="spin"></span>updating…';
+  try{await fetch(location.pathname,{cache:"reload"})}catch(_){}
+  location.reload();
+}
+/* pull-to-refresh (top of page, outside inner scrollers) */
+(function(){
+  const P={y0:null,pull:0,busy:false};
+  const el=()=>$("ptr");
+  document.addEventListener("touchstart",e=>{
+    P.y0=(window.scrollY<=0&&!e.target.closest(".chat, .sets, table, #livemap"))?e.touches[0].clientY:null;P.pull=0;
+  },{passive:true});
+  document.addEventListener("touchmove",e=>{
+    if(P.y0==null||P.busy)return;
+    P.pull=e.touches[0].clientY-P.y0;
+    const d=el();if(!d)return;
+    if(P.pull>24&&window.scrollY<=0){
+      d.style.transform="translateY("+Math.min(P.pull-24,64)+"px)";
+      d.textContent=P.pull>90?"release to refresh":"↓ pull to refresh";
+    }else{d.style.transform="translateY(-110%)"}
+  },{passive:true});
+  document.addEventListener("touchend",async()=>{
+    const d=el();
+    if(P.y0!=null&&!P.busy&&P.pull>90&&window.scrollY<=0&&d){
+      P.busy=true;d.textContent="refreshing…";d.style.transform="translateY(40px)";
+      try{await refreshAll();toast("Up to date")}catch(e){toast("Refresh failed: "+e.message)}
+      P.busy=false;
+    }
+    if(d)d.style.transform="translateY(-110%)";
+    P.y0=null;P.pull=0;
+  },{passive:true});
+})();
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&!needSetup())checkUpdate()});
 </script>
 <script>
 /* ═══ SMALL CHART BUILDERS (SVG) ═══ */
@@ -823,7 +899,7 @@ function renderToday(){
   </div>
   ${cn?.j?.rest_of_day?`<div class="card"><h2>Rest of today</h2>
     <div style="font-size:13px; color:var(--ink-2)">${cn.j.rest_of_day}</div>
-    ${(cn.j.pills||[]).length?`<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:10px">${cn.j.pills.map(p=>`<span class="pill">${esc(p)}</span>`).join("")}</div>`:""}
+    ${(cn.j.pills||[]).length?`<div style="display:flex; flex-direction:column; gap:6px; margin-top:10px">${cn.j.pills.map(p=>`<span class="pill" style="white-space:normal; line-height:1.45; padding:6px 10px; width:fit-content; max-width:100%">${esc(p)}</span>`).join("")}</div>`:""}
     <div class="coach-note" style="margin-top:10px; border-left-color:var(--axis); font-size:11px; color:var(--ink-3); background:none; padding:4px 0 0 10px">↻ written by Coach ${cn.date} · updates with the daily briefing</div>
   </div>`:""}`;
   if(act){S._mapAct=act;S._mapPending=true;loadMaxPower(act.id)}
