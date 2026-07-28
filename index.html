@@ -179,7 +179,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.4.0</div>
+  <div class="footer-note">Coach OS v1.4.1</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -272,8 +272,24 @@ async function coachAI(messages,maxTokens=500,opts={}){
   catch(e){await new Promise(r=>setTimeout(r,3000));return coachAIOnce(messages,maxTokens,opts)}
 }
 async function coachAIRaw(messages,maxTokens,opts={}){
-  const body={model:CFG.anthModel,max_tokens:maxTokens,system:opts.light?"You estimate food macros.":CFG.brief+(CFG.dossier?"\n\nATHLETE DOSSIER (deep context — ground every answer in this, never give generic advice that contradicts it):\n"+CFG.dossier:"")+"\n\n"+prefsCtx()+"\nLIVE DATA:\n"+liveContext()+pastConvos(),messages};
-  if(opts.tools)body.tools=opts.tools;
+  const body={model:CFG.anthModel,max_tokens:maxTokens,messages};
+  if(opts.light){
+    body.system="You estimate food macros.";
+  }else{
+    /* prompt caching: stable prefix (brief+dossier) and per-session context each get a breakpoint,
+       plus the rolling last message — repeat turns + tool-loop iterations pay ~10% for the cached prefix */
+    const stable=CFG.brief+(CFG.dossier?"\n\nATHLETE DOSSIER (deep context — ground every answer in this, never give generic advice that contradicts it):\n"+CFG.dossier:"");
+    const live="\n"+prefsCtx()+"\nLIVE DATA:\n"+liveContext()+pastConvos();
+    body.system=[{type:"text",text:stable,cache_control:{type:"ephemeral"}},{type:"text",text:live,cache_control:{type:"ephemeral"}}];
+    const ms=messages.map(m=>({...m}));
+    const lm=ms[ms.length-1];
+    if(lm){
+      if(typeof lm.content==="string")lm.content=[{type:"text",text:lm.content,cache_control:{type:"ephemeral"}}];
+      else if(Array.isArray(lm.content)&&lm.content.length)lm.content=lm.content.map((b,i,arr)=>i===arr.length-1?{...b,cache_control:{type:"ephemeral"}}:b);
+    }
+    body.messages=ms;
+  }
+  if(opts.tools)body.tools=opts.light?opts.tools:opts.tools.map((t,i,arr)=>i===arr.length-1?{...t,cache_control:{type:"ephemeral"}}:t);
   if(opts.light)body.thinking={type:"disabled"};
   const ctl=new AbortController();const tmr=setTimeout(()=>ctl.abort(),opts.light?25000:90000);
   let r;try{
@@ -355,7 +371,7 @@ async function runTool(tu){
       }
       const best=dur=>{if(!wts.length||wts.length<dur)return null;let s=0;for(let i=0;i<dur;i++)s+=wts[i];let mx=s;for(let i=dur;i<wts.length;i++){s+=wts[i]-wts[i-dur];if(s>mx)mx=s}return Math.round(mx/dur)};
       const z=[0,0,0,0,0,0,0];wts.forEach(x=>{z[powerZone(x)-1]++});
-      const res=Math.max(10,Math.ceil(tot/70/10)*10);
+      const res=Math.max(10,Math.ceil(tot/45/10)*10);
       const bin=arr=>{const o=[];for(let i=0;i<tot;i+=res){const seg=arr.slice(i,i+res).filter(x=>x!=null);o.push(seg.length?Math.round(10*seg.reduce((s,x)=>s+x,0)/seg.length)/10:null)}return o};
       const hrH=(M.hr||[]).filter(x=>x>0);const half=Math.floor(hrH.length/2);
       const hAvg=arr=>arr.length?Math.round(arr.reduce((s,x)=>s+x,0)/arr.length):null;
