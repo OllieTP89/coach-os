@@ -179,7 +179,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.4.1</div>
+  <div class="footer-note">Coach OS v1.4.2</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -194,6 +194,7 @@ const CFG={
   icBase:"https://intervals.icu/api/v1",
   anthKey:null,
   anthModel:"claude-sonnet-5",
+  lightModel:"claude-haiku-4-5",
   ghToken:null,
   ghRepo:"OllieTP89/coach-os-data",
   ftpFallback:250, weightFallback:75, lthr:165,
@@ -272,7 +273,7 @@ async function coachAI(messages,maxTokens=500,opts={}){
   catch(e){await new Promise(r=>setTimeout(r,3000));return coachAIOnce(messages,maxTokens,opts)}
 }
 async function coachAIRaw(messages,maxTokens,opts={}){
-  const body={model:CFG.anthModel,max_tokens:maxTokens,messages};
+  const body={model:opts.light?(CFG.lightModel||CFG.anthModel):CFG.anthModel,max_tokens:maxTokens,messages};
   if(opts.light){
     body.system="You estimate food macros.";
   }else{
