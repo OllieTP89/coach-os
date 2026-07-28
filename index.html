@@ -179,7 +179,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.4.2</div>
+  <div class="footer-note">Coach OS v1.4.3</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -1306,7 +1306,12 @@ function renderFood(){
   const doneKJ=actsToday.reduce((s,a)=>s+((a.icu_joules||((a.icu_training_load||0)*9000))/1000),0);
   const planKJ=evToday.filter(e=>e.type!=="Yoga").reduce((s,e)=>s+((e.icu_training_load||0)*9),0);
   const burn=Math.round((calibBase().base+Math.max(doneKJ,planKJ))/50)*50;
-  const kcalTgt=(coachNote()?.j?.kcal_target)||Math.max(2200,Math.round((burn-400)/50)*50);
+  /* target FOLLOWS the day: the morning note's number was set from planned load — if actual
+     burn outgrows it, the target rises with it (never a >550 kcal deficit vs live burn).
+     A coach note HIGHER than formula (race fueling) is respected. */
+  const fmlaTgt=Math.max(2200,Math.round((burn-400)/50)*50);
+  const noteTgt=coachNote()?.j?.kcal_target||0;
+  const kcalTgt=Math.max(noteTgt,fmlaTgt);
   const bar=(label,val,tgt2,unit,color)=>`<div class="macro"><div class="top"><b>${label}</b><span>${Math.round(val)} / ${tgt2} ${unit}</span></div>
     <div class="bar"><i style="width:${Math.min(100,Math.round(100*val/tgt2))}%; background:${color}"></i></div></div>`;
   const hist=[...Array(10)].map((_,i)=>{const d=addDays(t,-9+i);const ls=foodNotes(d);
