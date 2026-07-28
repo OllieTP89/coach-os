@@ -183,7 +183,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.5.0</div>
+  <div class="footer-note">Coach OS v1.5.1</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -951,7 +951,7 @@ async function openDetail(id){
     <div class="metric-grid dense" style="grid-template-columns:repeat(4,1fr)">
       ${[["Moving",fmtT(a.moving_time)],["Distance",a.distance?(a.distance/1000).toFixed(1)+" km":"–"],["Avg speed",a.average_speed?(a.average_speed*3.6).toFixed(1)+" kph":"–"],["Max speed",a.max_speed?(a.max_speed*3.6).toFixed(1)+" kph":"–"],
         ["NP",(a.icu_weighted_avg_watts??"–")+" W"],["Avg power",(a.icu_average_watts??"–")+" W"],["Max power",'<span id="dmaxw">–</span> W'],["Elapsed",fmtT(a.elapsed_time)],
-        ["Load",a.icu_training_load??"–"],["IF",a.icu_intensity?(a.icu_intensity/100).toFixed(2):"–"],["Decoupling",a.decoupling!=null?a.decoupling.toFixed(1)+"%":"–"],["Avg HR",a.average_heartrate??"–"],
+        ["Load",a.icu_training_load??"–"],["IF",a.icu_intensity?(a.icu_intensity/100).toFixed(2):"–"],["Decoupling",'<span id="ddec">'+(a.decoupling!=null?a.decoupling.toFixed(1)+"%":"–")+'</span>'],["Avg HR",a.average_heartrate??"–"],
         ["Max HR",a.max_heartrate??"–"],["Cadence",a.average_cadence?Math.round(a.average_cadence):"–"],["Calories",a.calories??"–"],["Carbs used",a.carbs_used?a.carbs_used+" g":"–"],
         ["Elevation",a.total_elevation_gain?Math.round(a.total_elevation_gain)+" m":"–"],["Coasting",a.coasting_time?fmtT(a.coasting_time):"–"]]
         .map(([l,v])=>`<div class="metric"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("")}
@@ -1021,6 +1021,11 @@ async function openDetail(id){
       const htot=hz.reduce((a,b)=>a+b,0)||1;
       $("dhrzbar").innerHTML=hz.map((v,i)=>v?`<i style="flex:${(100*v/htot).toFixed(1)}; background:var(--z${Math.min(i+1,7)}); opacity:0.65"></i>`:"").join("");
       $("dhrzlegend").innerHTML='<span style="color:var(--ink-3);font-size:10.5px">HR zones:</span>'+hz.map((v,i)=>100*v/htot>=8?`<span><i style="background:var(--z${i+1});opacity:0.65"></i>Z${i+1} ${Math.round(100*v/htot)}%</span>`:"").filter(Boolean).join("");
+    }
+    /* warmup-stripped decoupling upgrade */
+    const td=trimmedDecoupling(wts,hr);
+    if(td!=null&&$("ddec")){
+      $("ddec").innerHTML=`<span style="color:${td<8?"var(--good-text)":"var(--warn)"}">${td}%</span><small> trimmed</small><div style="font-size:9px;color:var(--ink-3);font-weight:400">raw ${a.decoupling!=null?a.decoupling.toFixed(1)+"%":"–"} incl. warmup</div>`;
     }
     /* power curve + best-effort flags */
     const mmp=rideMMP(wts);
@@ -1122,7 +1127,7 @@ function pcPoints(){
   (c.secs||[]).forEach((s,i)=>{if(keep.includes(s))pts[s]=(c.values||c.watts||[])[i]});
   return Object.keys(pts).length?pts:null;
 }
-function decoupSeries(){return S.acts.filter(a=>["Ride","VirtualRide"].includes(a.type)&&a.decoupling!=null&&(a.moving_time||0)>=1800).map(a=>({d:a.start_date_local.slice(0,10),v:+a.decoupling.toFixed(1)})).reverse()}
+function decoupSeries(){return S.acts.filter(a=>{if(!["Ride","VirtualRide"].includes(a.type)||a.decoupling==null||(a.moving_time||0)<2400)return false;const vi=a.icu_weighted_avg_watts&&a.icu_average_watts?a.icu_weighted_avg_watts/a.icu_average_watts:99;return vi<=1.2&&a.decoupling>-15&&a.decoupling<30}).map(a=>({d:a.start_date_local.slice(0,10),v:+a.decoupling.toFixed(1)})).reverse()}
 /* ═══ v1.4 POST-RIDE ENGINE ═══ */
 const MMP_DURS=[5,15,30,60,120,180,300,600,900,1200,1800,2700,3600];
 const fmtDur=s=>s<60?s+"s":s<3600?(s/60)+"m":"60m";
@@ -1183,6 +1188,20 @@ function vo2maxEst(){
   const bands=[[52.5,"Superior"],[46.8,"Excellent"],[43.9,"Good"],[40.5,"Fair"],[0,"Poor"]];
   const band=bands.find(b=>v>=b[0])[1];
   return{v,band};
+}
+/* Friel-style trimmed decoupling: drop the first 12 min (HR lag + cold engine) and coasting,
+   then compare power:HR ratio across halves of what remains. Positive = drift. */
+function trimmedDecoupling(wts,hr){
+  const WARM=720;
+  if(!wts||!hr||wts.length<WARM+1500)return null;   /* needs 25+ steady min after warmup */
+  const pw=[],hh=[];
+  for(let i=WARM;i<wts.length;i++){const w=wts[i],h=hr[i];if(w!=null&&w>=50&&h&&h>90){pw.push(w);hh.push(h)}}
+  if(pw.length<1500)return null;
+  const half=Math.floor(pw.length/2);
+  const avg=arr=>arr.reduce((s,x)=>s+x,0)/arr.length;
+  const r1=avg(pw.slice(0,half))/avg(hh.slice(0,half));
+  const r2=avg(pw.slice(half))/avg(hh.slice(half));
+  return +((100*(r1-r2)/r1).toFixed(1));
 }
 function prevSimilar(a){
   const norm=s=>String(s||"").toLowerCase().replace(/\d+/g,"").replace(/\s+/g," ").trim();
@@ -1314,7 +1333,7 @@ function renderProgress(){
       return`<div class="skill"><div class="top"><b>${l}</b><span>${kg.toFixed(1)} W/kg · <b>${r.name}</b></span></div>
       <div class="bar" style="position:relative"><i style="width:${Math.round(r.pct)}%; background:var(--${c})"></i></div></div>`}).join("")}
     <div style="font-size:11px; color:var(--ink-3); margin-top:4px">Scale: Coggan/Allen power-profile reference (Untrained → World class). Your bests are race-derived — several are sub-maximal; Test Week (W35) sets true numbers. Every kg lost moves every rating up.</div></div>`:""}
-  <div class="card"><h2>Durability — the block KPI <span class="when">decoupling, rides ≥30 min</span></h2>
+  <div class="card"><h2>Durability — the block KPI <span class="when">steady rides ≥40 min (VI ≤ 1.2)</span></h2>
     <div class="chart-wrap">${lineChart(dec.map((p,i)=>[i,p.v]),{refs:[8],refLabels:["8%"],xlab:[dec[0]?.d.slice(5)||"",dec[dec.length-1]?.d.slice(5)||""],label:"Decoupling trend vs 8 percent target"})}</div>
     ${coachNote()?.j?.kpi_read?`<div class="coach-note">${coachNote().j.kpi_read}<span class="dyn">↻ Coach · ${coachNote().date}</span></div>`:""}</div>
   <div class="card"><h2>Goals</h2>
