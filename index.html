@@ -183,7 +183,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.5.4</div>
+  <div class="footer-note">Coach OS v1.5.5</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -283,7 +283,7 @@ async function coachAIRaw(messages,maxTokens,opts={}){
   }else{
     /* prompt caching: stable prefix (brief+dossier) and per-session context each get a breakpoint,
        plus the rolling last message — repeat turns + tool-loop iterations pay ~10% for the cached prefix */
-    const stable=CFG.brief+(CFG.dossier?"\n\nATHLETE DOSSIER (deep context — ground every answer in this, never give generic advice that contradicts it):\n"+CFG.dossier:"");
+    const stable=CFG.brief+(CFG.dossier?"\n\nATHLETE DOSSIER (deep context — ground every answer in this, never give generic advice that contradicts it):\n"+CFG.dossier:"")+"\n\nDATA HONESTY (absolute): never state a specific logged metric (calories, protein, weights, watts, dates) unless you read it THIS conversation from LIVE DATA or a tool result. Past-day nutrition = call get_food_log first, always. If the data is not available to you, say exactly that and stop — a made-up number presented as logged fact is the worst failure this product can have.";
     const live="\n"+prefsCtx()+"\nLIVE DATA:\n"+liveContext()+pastConvos();
     body.system=[{type:"text",text:stable,cache_control:{type:"ephemeral"}},{type:"text",text:live,cache_control:{type:"ephemeral"}}];
     const ms=messages.map(m=>({...m}));
@@ -326,7 +326,8 @@ const COACH_TOOLS=[
  {name:"log_food",description:"Log a meal to today's food log (or a past date). Break the meal into COMPONENT items with assumed portions; use EXACT label macros for his known current products (in your dossier/profile) — named brands never get guessed macros.",input_schema:{type:"object",properties:{raw:{type:"string",description:"short meal name as he described it"},date:{type:"string",description:"YYYY-MM-DD, default today"},items:{type:"array",items:{type:"object",properties:{n:{type:"string"},q:{type:"string",description:"assumed qty e.g. 100g, 1 scoop, 2 large"},kcal:{type:"number"},p:{type:"number"},c:{type:"number"},f:{type:"number"},fib:{type:"number"}},required:["n","q","kcal","p","c","f"]}}},required:["raw","items"]}},
  {name:"update_food",description:"Correct an existing food entry (entry ids are in LIVE DATA foodToday / via conversation). Return the FULL corrected items list.",input_schema:{type:"object",properties:{id:{type:"string"},raw:{type:"string"},items:{type:"array",items:{type:"object",properties:{n:{type:"string"},q:{type:"string"},kcal:{type:"number"},p:{type:"number"},c:{type:"number"},f:{type:"number"},fib:{type:"number"}},required:["n","q","kcal","p","c","f"]}}},required:["id","items"]}},
  {name:"delete_food",description:"Remove a food entry by id after his conversational OK.",input_schema:{type:"object",properties:{id:{type:"string"}},required:["id"]}},
- {name:"log_weight",description:"Record a scale weigh-in (kg). Writes it to today's (or the given date's) wellness record and the data store — the same place his Whoop weigh-ins land.",input_schema:{type:"object",properties:{kg:{type:"number"},date:{type:"string",description:"YYYY-MM-DD, default today"}},required:["kg"]}}
+ {name:"log_weight",description:"Record a scale weigh-in (kg). Writes it to today's (or the given date's) wellness record and the data store — the same place his Whoop weigh-ins land.",input_schema:{type:"object",properties:{kg:{type:"number"},date:{type:"string",description:"YYYY-MM-DD, default today"}},required:["kg"]}},
+ {name:"get_food_log",description:"Read the LOGGED food history (itemized entries + exact daily totals) for a date range from the data store. MANDATORY before stating any past-day nutrition number — never estimate or recall these from memory.",input_schema:{type:"object",properties:{oldest:{type:"string",description:"YYYY-MM-DD, default 7 days ago"},newest:{type:"string",description:"YYYY-MM-DD, default today"}},required:[]}}
 ];
 async function runTool(tu){
   const a=tu.input||{};
@@ -434,6 +435,20 @@ async function runTool(tu){
       const r=await logWeight(a.kg,a.date||today());
       return r;
     }
+    if(tu.name==="get_food_log"){
+      const o=a.oldest||addDays(today(),-7),nw=a.newest||today();
+      const ent=(((S.store||{}).nutrition||{}).entries||[]).filter(e=>!e.deleted&&e.date>=o&&e.date<=nw);
+      if(!ent.length)return "no logged entries in that range";
+      const rows={};
+      ent.forEach(e=>{(rows[e.date]=rows[e.date]||[]).push(e)});
+      const days=Object.keys(rows).sort().map(d=>{
+        const t={kcal:0,p:0,c:0,f:0,fib:0};
+        rows[d].forEach(e=>{const s=e.est||{};for(const k in t)t[k]+=s[k]||0});
+        return{date:d,total:{kcal:Math.round(t.kcal),p:Math.round(t.p),c:Math.round(t.c),f:Math.round(t.f),fib:Math.round(t.fib)},
+          entries:rows[d].map(e=>({meal:e.raw,kcal:Math.round((e.est||{}).kcal||0),p:Math.round((e.est||{}).p||0),items:(e.items||[]).map(i=>`${i.n} (${i.q||""})`)}))};
+      });
+      return JSON.stringify(days);
+    }
     return "unknown tool";
   }catch(e){return "ERROR: "+e.message}
 }
@@ -455,7 +470,7 @@ async function logWeight(kg,date){
   renderToday();
   return "weigh-in saved: "+kg+" kg on "+date;
 }
-const TOOL_STATUS={create_workout:"writing the workout…",update_workout:"updating the plan…",delete_workout:"removing the workout…",set_kcal_target:"adjusting your target…",get_activities:"pulling your sessions…",get_activity_streams:"reading the ride data…",log_food:"logging the meal…",update_food:"fixing the entry…",delete_food:"removing the entry…",log_weight:"saving your weigh-in…"};
+const TOOL_STATUS={create_workout:"writing the workout…",update_workout:"updating the plan…",delete_workout:"removing the workout…",set_kcal_target:"adjusting your target…",get_activities:"pulling your sessions…",get_activity_streams:"reading the ride data…",log_food:"logging the meal…",update_food:"fixing the entry…",delete_food:"removing the entry…",log_weight:"saving your weigh-in…",get_food_log:"reading the food log…"};
 async function coachChat(holder){
   let msgs=S.chat.slice(-16);
   while(msgs.length&&msgs[0].role!=="user")msgs=msgs.slice(1);
@@ -1453,7 +1468,7 @@ function renderFood(){
       out+=`<text x="${x+w2/2}" y="123" text-anchor="middle" font-size="9" fill="var(--ink-3)">${+h.d.slice(8)}</text>`;
       return out}).join("")}</svg></div>
     <div class="legend"><span><i style="background:var(--accent)"></i>intake</span><span><i style="background:var(--axis); opacity:0.5"></i>est burn</span><span><i style="background:var(--ink-2); height:2px; border-radius:0"></i>target</span><span><i style="background:var(--crit)"></i>over burn</span></div>
-    ${coachNote()?.j?.food_read?`<div class="coach-note">${coachNote().j.food_read}<span class="dyn">↻ Coach · ${coachNote().date}</span></div>`:""}</div>`;
+    ${(coachNote()?.date===today()&&coachNote()?.j?.food_read)?`<div class="coach-note">${coachNote().j.food_read}<span class="dyn">↻ Coach · ${coachNote().date} (describes ${addDays(coachNote().date,-1)})</span></div>`:""}</div>`;
 }
 function prefsCtx(){
   const p=(S.store&&S.store.prefs)||null;if(!p)return"";
