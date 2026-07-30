@@ -183,7 +183,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.5.3</div>
+  <div class="footer-note">Coach OS v1.5.4</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -629,6 +629,7 @@ async function boot(){
     renderHeader();renderToday();renderPlan();renderProgress();renderFood();renderGym();renderCoach();
     retryTallies();
     showTab("today");
+    LASTFETCH=Date.now();
     checkUpdate();
   }catch(err){
     $("loading").style.display="none";
@@ -637,7 +638,9 @@ async function boot(){
   }
 }
 /* ═══ REFRESH + UPDATE (v1.5) ═══ */
+let LASTFETCH=0;
 async function refreshAll(){
+  LASTFETCH=Date.now();
   const t=today();
   const storeP=loadStore();
   const [ath,wellness,acts,events,pc]=await Promise.all([
@@ -702,7 +705,7 @@ async function doUpdate(){
     P.y0=null;P.pull=0;
   },{passive:true});
 })();
-document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&!needSetup())checkUpdate()});
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&!needSetup()){checkUpdate();if(LASTFETCH&&Date.now()-LASTFETCH>15*60*1000){refreshAll().then(()=>toast("Refreshed")).catch(()=>{})}}});
 </script>
 <script>
 /* ═══ SMALL CHART BUILDERS (SVG) ═══ */
