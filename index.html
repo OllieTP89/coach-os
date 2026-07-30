@@ -183,7 +183,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.5.1</div>
+  <div class="footer-note">Coach OS v1.5.3</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -788,23 +788,28 @@ function renderHeader(){
 /* ═══ TODAY ═══ */
 function trafficLight(r){return r==null?["var(--axis)","#8b95a5","–","No Whoop data yet today"]:r<34?["var(--crit)","#fff",r,"Red — recovery day, full stop"]:r<67?["var(--warn)","#231a04",r,"Amber — reduce, don't push"]:["var(--good)","#08130c",r,"Green — as written, or a touch more"]}
 function calibBase(){
-  const ws=S.wellness.filter(x=>x.weight!=null);
+  /* v1.5.3: weight change = LEAST-SQUARES SLOPE across all weigh-ins in a 28-day window,
+     never two endpoint readings — a single post-booze water bounce cannot flip the sign
+     (the 2,660 → 2,100 whipsaw of 7/27-29 was exactly that failure). */
+  const cut=addDays(today(),-28);
+  const ws=S.wellness.filter(x=>x.weight!=null&&x.id>=cut);
   if(ws.length<2)return {base:2450,cal:false,note:"default baseline — need 2+ weigh-ins"};
-  const span=ws.slice(-10);
-  const first=span[0], last=span[span.length-1];
-  const days=(new Date(last.id)-new Date(first.id))/864e5;
-  if(days<7)return {base:2450,cal:false,note:"default baseline — weigh-ins span under a week"};
-  const dKg=last.weight-first.weight;
+  const d0=new Date(ws[0].id);
+  const xs=ws.map(w=>(new Date(w.id)-d0)/864e5),ys=ws.map(w=>w.weight);
+  const span=xs[xs.length-1];
+  if(ws.length<8||span<10)return {base:2450,cal:false,note:"default baseline — building scale history ("+ws.length+" weigh-ins)"};
+  const n=xs.length,mx=xs.reduce((a,b)=>a+b,0)/n,my=ys.reduce((a,b)=>a+b,0)/n;
+  const slope=xs.reduce((s,x,i)=>s+(x-mx)*(ys[i]-my),0)/xs.reduce((s,x)=>s+(x-mx)*(x-mx),0);
   const ent=((S.store||{}).nutrition||{}).entries||[];
-  const byDay={};ent.forEach(e=>{if(e.date>=first.id&&e.date<=last.id&&e.est)byDay[e.date]=(byDay[e.date]||0)+(e.est.kcal||0)});
+  const byDay={};ent.forEach(e=>{if(e.date>=ws[0].id&&e.date<=ws[ws.length-1].id&&e.est)byDay[e.date]=(byDay[e.date]||0)+(e.est.kcal||0)});
   const logged=Object.keys(byDay).filter(d=>byDay[d]>=1200);
   if(logged.length<5)return {base:2450,cal:false,note:"default baseline — need 5+ fully logged days"};
   const avgIntake=logged.reduce((a,d)=>a+byDay[d],0)/logged.length;
-  const rideK={};S.acts.forEach(a=>{const d=a.start_date_local?.slice(0,10);if(d&&d>=first.id&&d<=last.id)rideK[d]=(rideK[d]||0)+((a.icu_joules||((a.icu_training_load||0)*9000))/1000)});
-  const avgRide=Object.values(rideK).reduce((a,b)=>a+b,0)/days;
-  let base=Math.round((avgIntake-(dKg*7700)/days-avgRide)/10)*10;
+  const rideK={};S.acts.forEach(a=>{const d=a.start_date_local?.slice(0,10);if(d&&d>=ws[0].id&&d<=ws[ws.length-1].id)rideK[d]=(rideK[d]||0)+((a.icu_joules||((a.icu_training_load||0)*9000))/1000)});
+  const avgRide=Object.values(rideK).reduce((a,b)=>a+b,0)/span;
+  let base=Math.round((avgIntake-slope*7700-avgRide)/10)*10;
   base=Math.max(2000,Math.min(3200,base));
-  return {base,cal:true,note:"calibrated from your scale — "+logged.length+" logged days over "+Math.round(days)+"d, "+(dKg<0?"-":"+")+Math.abs(dKg).toFixed(1)+" kg"};
+  return {base,cal:true,note:"calibrated from your scale — "+n+" weigh-ins over "+Math.round(span)+"d, trend "+(slope<0?"−":"+")+Math.abs(slope*7).toFixed(2)+" kg/wk"};
 }
 function renderToday(){
   try{const t0=today();const sr=(((S.store||{}).recovery||{}).entries||[]).find(e=>e.date===t0);
@@ -1514,13 +1519,50 @@ const GYM_TEMPLATE=[
   {name:"Seated DB shoulder press",scheme:"3 × 8 per DB",sets:[[40,8],[40,8],[40,8]]},
   {name:"Lat pulldown",scheme:"3 × 12",sets:[[140,12],[140,12],[140,12]]},
   {name:"Pallof press",scheme:"2 × 10 per side",sets:[[20,10],[20,10]]}];
+/* Parse the planned WeightTraining event's description into the session — the CALENDAR is the
+   programming source of truth (coach edits it via update_workout); GYM_TEMPLATE is only a fallback. */
+function parseGymEvent(ev){
+  if(!ev||!ev.description)return null;
+  const logs=gymLogs();
+  const lastFor=name=>{
+    const key=name.toLowerCase().split(/[\s(:/,]/).filter(Boolean)[0]||"";
+    for(let i=logs.length-1;i>=0;i--){
+      const b=(logs[i].j.exercises||[]).find(e=>String(e.name||"").toLowerCase().includes(key));
+      if(b&&b.sets&&b.sets.length)return b.sets[b.sets.length-1].lb||0;
+    }
+    const t=GYM_TEMPLATE.find(x=>x.name.toLowerCase().includes(key));
+    return t?t.sets[0][0]:0;
+  };
+  const purpose=(ev.description.split("\n").find(l=>/^purpose/i.test(l.trim()))||"").replace(/^purpose:\s*/i,"").trim();
+  const exs=[];
+  ev.description.split("\n").forEach(raw=>{
+    const l=raw.trim();
+    if(!l.startsWith("-"))return;
+    const t=l.replace(/^-\s*/,"");
+    const m=t.match(/^(.*?)[:,]?\s*(\d+)\s*[x×]\s*(\d+)(?:\s*-\s*\d+)?(.*)$/i);
+    if(m&&m[1].trim()){
+      const name=m[1].trim().replace(/[:\-–,]+$/,"");
+      const n=Math.min(+m[2],6),reps=+m[3];
+      const note=(m[4]||"").trim().replace(/^[,—–-]\s*/,"");
+      const lb=lastFor(name);
+      exs.push({name,scheme:`${m[2]} × ${m[3]}${note?" — "+note:""}`,sets:Array.from({length:n},()=>[lb,reps])});
+    }else{
+      exs.push({name:t,scheme:"as written — tick when done",sets:[[0,1]]});
+    }
+  });
+  return exs.length?{purpose,exs}:null;
+}
 function renderGym(){
   const nextEv=S.events.filter(e=>e.category==="WORKOUT"&&e.type==="WeightTraining"&&e.start_date_local?.slice(0,10)>=today()).sort((a,b)=>a.start_date_local<b.start_date_local?-1:1)[0];
   const lastLog=gymLogs().slice(-1)[0];
+  const plan=parseGymEvent(nextEv);
+  const exList=plan?plan.exs:GYM_TEMPLATE;
   $("tab-gym").innerHTML=`
   <div class="card"><h2>${nextEv?esc(nextEv.name.replace(/^.*·\s*/,""))+' <span class="when">'+dayName(nextEv.start_date_local.slice(0,10))+" "+nextEv.start_date_local.slice(8,10)+" · all lb</span>":"Upper A · all lb"}</h2>
+    ${plan&&plan.purpose?`<div style="font-size:12.5px;color:var(--ink-2);margin-bottom:8px">${esc(plan.purpose)}</div>`:""}
+    ${plan?`<div style="font-size:10.5px;color:var(--accent);margin-bottom:6px;letter-spacing:0.08em;text-transform:uppercase">live from the plan — coach edits apply here</div>`:""}
     ${lastLog?`<div style="font-size:12px;color:var(--ink-3);margin-bottom:6px">last logged session: ${lastLog.date}</div>`:""}
-    ${GYM_TEMPLATE.map((ex,xi)=>`<div class="ex"><div class="name">${ex.name}</div><div class="scheme">${ex.scheme}</div>
+    ${exList.map((ex,xi)=>`<div class="ex"><div class="name">${esc(ex.name)}</div><div class="scheme">${esc(ex.scheme)}</div>
       <div class="sets" data-x="${xi}">${ex.sets.map(([lb,r])=>`<div class="set"><input inputmode="numeric" value="${lb}"><span class="x">lb ×</span><input inputmode="numeric" value="${r}" style="width:26px"><button class="tick" aria-label="done">✓</button></div>`).join("")}
       <button class="ghost addset" style="padding:6px 10px;font-size:12px">+ set</button></div></div>`).join("")}
     <div style="display:flex; gap:8px; margin-top:12px">
