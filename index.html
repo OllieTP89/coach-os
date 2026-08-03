@@ -183,7 +183,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note">Coach OS v1.5.5</div>
+  <div class="footer-note">Coach OS v1.5.7</div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -512,7 +512,7 @@ function liveContext(){
     weekPlan:S.events.filter(e=>e.category==="WORKOUT"&&e.start_date_local>=addDays(today(),-1)&&e.start_date_local<=addDays(today(),8)).map(e=>({id:e.id,d:e.start_date_local?.slice(0,10),name:e.name,type:e.type,load:e.icu_training_load})),
     planBlocks:(CFG.plan?.blocks||[]).map(b=>({n:b.n,from:b.from,to:b.to,kpi:b.kpi,current:today()>=b.from&&today()<=b.to||undefined})),
     foodToday:foodNotes(today()).map(n=>n.j),
-    latestCoachNote:coachNote()?.j||null,
+    latestCoachNote:todayNote()?.j||null,
     lastGymLog:gymLogs().slice(-1).map(n=>({exercises:n.j.exercises,date:n.date}))[0]||null});
 }
 function saveGhTok(){
@@ -594,7 +594,12 @@ const uid=()=>"e"+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 function parseNotes(){S.notes=S.events.filter(e=>e.category==="NOTE"&&(e.name||"").startsWith("COS·")).map(e=>{let j=null;try{j=JSON.parse(e.description||"{}")}catch(_){j={raw:e.description}}return{id:e.id,name:e.name,date:(e.start_date_local||"").slice(0,10),j}})}
 const foodNotes=d=>((S.store&&S.store.nutrition&&S.store.nutrition.entries)||[]).filter(e=>e.date===d&&!e.deleted).map(e=>({id:e.id,date:e.date,j:e}));
 const gymLogs=()=>((S.store&&S.store.strength&&S.store.strength.entries)||[]).map(e=>({date:e.date,j:e}));
-const coachNote=()=>S.notes.filter(n=>n.name==="COS·coach").sort((a,b)=>a.date<b.date?1:-1)[0];
+/* v1.5.6: the trigger writes notes named "COS·coach 2026-08-02" (date appended) but this
+   filtered on EXACT equality with "COS·coach", so every dated briefing was invisible to the
+   app and it stayed pinned to the last undated note (29 Jul, written by the chat tool).
+   Prefix-match fixes the selection; todayNote() stops a stale note impersonating today. */
+const coachNote=()=>S.notes.filter(n=>(n.name||"").startsWith("COS·coach")).sort((a,b)=>a.date<b.date?1:-1)[0];
+const todayNote=()=>{const n=coachNote();return (n&&n.date===today())?n:null};
 async function logChat(q,a){
   try{await storeMutate("chat",j=>{j.entries.push({date:today(),q:String(q),a:String(a),ts:Date.now()})},"app: chat")}catch(_){}
 }
@@ -846,14 +851,14 @@ function renderToday(){
   const act=S.acts.find(a=>a.start_date_local?.slice(0,10)===today())||S.acts[0];
   const actDay=act?.start_date_local?.slice(0,10);
   const planned=plannedFor(act);
-  const cn=coachNote();
+  const cn=todayNote();
   const exec=execStatus(act,planned);
   $("tab-today").innerHTML=`
   <div class="card">
     <div class="light">
       <div class="dot" style="background:${bg}; color:${fg}">${val}</div>
       <div class="txt"><div class="s1">${stale?"Latest ("+dayName(w.id)+"): ":""}${esc(line1)}</div>
-      <div class="s2">${stale?"Today's Whoop hasn't synced yet — open the Whoop app to update":(cn?.j?.headline?esc(cn.j.headline):"")}</div></div>
+      <div class="s2">${stale?"Today's Whoop hasn't synced yet — open the Whoop app to update":(cn?.j?.headline?esc(cn.j.headline):"No briefing yet today — ask Coach for one")}</div></div>
     </div>
     <div class="metric-grid">
       <div class="metric"><div class="l">HRV</div><div class="v">${w.hrv?Math.round(w.hrv):"–"}<small> ms</small></div><div class="d ${hrvAvg&&w.hrv<hrvAvg*0.93?"dn":""}">${hrvAvg?"7-day "+Math.round(hrvAvg):""}</div></div>
@@ -1141,7 +1146,7 @@ function renderPlan(){
     <div class="rowline" style="margin:12px 0 8px"><span style="font-size:13.5px">Strength sessions</span>
       <span style="font-size:13.5px; font-weight:600">${strengthDone} / ${strengthPlanned}${strengthPlanned?` <span style="color:${strengthDone/strengthPlanned<0.5?"var(--crit)":"var(--good-text)"}; font-weight:400; font-size:12px">${Math.round(100*strengthDone/strengthPlanned)}%</span>`:""}</span></div>
     <div class="bar"><i style="width:${strengthPlanned?Math.round(100*strengthDone/strengthPlanned):0}%; background:${strengthPlanned&&strengthDone/strengthPlanned<0.5?"var(--crit)":"var(--good)"}"></i></div>
-    ${coachNote()?.j?.adherence?`<div class="coach-note">${coachNote().j.adherence}<span class="dyn">↻ Coach · ${coachNote().date}</span></div>`:""}</div>`;
+    ${todayNote()?.j?.adherence?`<div class="coach-note">${todayNote().j.adherence}<span class="dyn">↻ Coach · ${todayNote().date}</span></div>`:""}</div>`;
 }
 /* ═══ PROGRESS ═══ */
 function pcPoints(){
@@ -1337,7 +1342,7 @@ function renderProgress(){
     <div class="chart-wrap">${powerCurveSvg(pc)}</div>
     <div class="legend"><span><i style="background:var(--accent)"></i>Best efforts, 42 d</span><span><i style="background:var(--z5)"></i>All-time</span>
     <span><i style="background:color-mix(in srgb,var(--accent) 18%, transparent); outline:1px solid var(--accent)"></i>Durability block target zone</span></div>
-    ${coachNote()?.j?.curve_read?`<div class="coach-note">${coachNote().j.curve_read}<span class="dyn">↻ Coach · ${coachNote().date}</span></div>`:""}</div>
+    ${todayNote()?.j?.curve_read?`<div class="coach-note">${todayNote().j.curve_read}<span class="dyn">↻ Coach · ${todayNote().date}</span></div>`:""}</div>
   <div class="card"><h2>PR ladder <span class="when">W and W/kg · ★ = touched in last 42 d</span></h2>
     ${(()=>{const all=pcAllPoints();return MMP_DURS.filter(d=>all[d]).map(d=>{
       const recent=pc[d]&&pc[d]>=all[d];
@@ -1358,7 +1363,7 @@ function renderProgress(){
     <div style="font-size:11px; color:var(--ink-3); margin-top:4px">Scale: Coggan/Allen power-profile reference (Untrained → World class). Your bests are race-derived — several are sub-maximal; Test Week (W35) sets true numbers. Every kg lost moves every rating up.</div></div>`:""}
   <div class="card"><h2>Durability — the block KPI <span class="when">steady rides ≥40 min (VI ≤ 1.2)</span></h2>
     <div class="chart-wrap">${lineChart(dec.map((p,i)=>[i,p.v]),{refs:[8],refLabels:["8%"],xlab:[dec[0]?.d.slice(5)||"",dec[dec.length-1]?.d.slice(5)||""],label:"Decoupling trend vs 8 percent target"})}</div>
-    ${coachNote()?.j?.kpi_read?`<div class="coach-note">${coachNote().j.kpi_read}<span class="dyn">↻ Coach · ${coachNote().date}</span></div>`:""}</div>
+    ${todayNote()?.j?.kpi_read?`<div class="coach-note">${todayNote().j.kpi_read}<span class="dyn">↻ Coach · ${todayNote().date}</span></div>`:""}</div>
   <div class="card"><h2>Goals</h2>
     <div class="goal"><div class="top"><b>W/kg</b><span>${wkg.toFixed(2)} <span class="tgt">→ 4.00</span></span></div>
       <div class="bar"><i style="width:${Math.round(100*(wkg-3)/(4-3))}%"></i></div></div>
@@ -1428,7 +1433,7 @@ function renderFood(){
      burn outgrows it, the target rises with it (never a >550 kcal deficit vs live burn).
      A coach note HIGHER than formula (race fueling) is respected. */
   const fmlaTgt=Math.max(2200,Math.round((burn-400)/50)*50);
-  const noteTgt=coachNote()?.j?.kcal_target||0;
+  const noteTgt=todayNote()?.j?.kcal_target||0;
   const kcalTgt=Math.max(noteTgt,fmlaTgt);
   const bar=(label,val,tgt2,unit,color)=>`<div class="macro"><div class="top"><b>${label}</b><span>${Math.round(val)} / ${tgt2} ${unit}</span></div>
     <div class="bar"><i style="width:${Math.min(100,Math.round(100*val/tgt2))}%; background:${color}"></i></div></div>`;
