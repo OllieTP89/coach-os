@@ -234,7 +234,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note" onclick="openSetup()" style="cursor:pointer">Coach OS v1.7.2 · <span style="color:var(--accent)">keys &amp; setup</span></div>
+  <div class="footer-note" onclick="openSetup()" style="cursor:pointer">Coach OS v1.7.3 · <span style="color:var(--accent)">keys &amp; setup</span></div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -286,6 +286,12 @@ function renderSetup(edit){
   <div class="card" style="text-align:left">
     <h2 style="color:var(--ink); font-size:15px">${edit?"Keys &amp; setup":"One-time setup"}</h2>
     <div style="font-size:13px; color:var(--ink-2); margin-bottom:12px">${edit?"Change any key that has been rotated, then save. Stored on THIS device only — nothing is sent anywhere except intervals.icu, Anthropic and GitHub directly.":"Paste your keys — they're saved on THIS device only and never sent anywhere except intervals.icu and Anthropic directly."}</div>
+    <div style="font-size:12.5px;line-height:1.6;margin:0 0 14px;padding:10px 11px;border-radius:8px;background:rgba(127,209,255,.10);border:0.5px solid rgba(127,209,255,.35)">
+      <b>Only the GitHub token is required.</b> Everything else is read from your private store, so if a key is rotated I can change it there and this phone picks it up on its own — you will not have to type anything.
+      ${KEYSRC==="store"?'<div style="margin-top:6px;color:var(--accent)">Keys currently loaded FROM THE STORE ✓</div>':''}
+    </div>
+    <div style="${lb}">GitHub data-store token (github_pat_…) — THE ONE THAT MATTERS</div>
+    <input id="su_g2" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" style="${is}" value="${v(CFG.ghToken)}">
     <div style="${lb}">intervals.icu athlete ID (looks like i123456)</div>
     <input id="su_a" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" style="${is}" placeholder="i…" value="${v(CFG.athlete)}">
     <div style="${lb}">intervals.icu API key (Settings → Developer)</div>
@@ -306,11 +312,12 @@ function renderSetup(edit){
 function openSetup(){window.scrollTo(0,0);renderSetup(true)}
 function closeSetup(){const L=document.getElementById("loading");L.style.display="none";L.innerHTML="";showTab("today")}
 function saveSetup(){
-  const a=document.getElementById("su_a").value.trim(),i=document.getElementById("su_i").value.trim(),n=document.getElementById("su_n").value.trim(),g=document.getElementById("su_g").value.trim();
-  if(!a){toast("Athlete ID needed (box 1)");return}
+  const a=document.getElementById("su_a").value.trim(),i=document.getElementById("su_i").value.trim(),n=document.getElementById("su_n").value.trim();
+  const g2=(document.getElementById("su_g2")||{}).value||"", g=(g2.trim()||document.getElementById("su_g").value.trim());
+  if(!g&&!CFG.ghToken){toast("GitHub token needed — it is the only one that matters");return}
   if(g&&!/^github_pat_[A-Za-z0-9_]{20,}$/.test(g)){toast("GitHub token looks wrong — check for a capital G or a stray space");return}
   const had=!!(CFG.athlete&&CFG.icKey);
-  CFG.athlete=a;CFG.icKey=i||CFG.icKey;CFG.anthKey=n||CFG.anthKey;CFG.ghToken=g||CFG.ghToken;
+  CFG.athlete=a||CFG.athlete;CFG.icKey=i||CFG.icKey;CFG.anthKey=n||CFG.anthKey;CFG.ghToken=g||CFG.ghToken;
   localStorage.setItem("cos_creds",JSON.stringify({a:CFG.athlete,i:CFG.icKey,n:CFG.anthKey,g:CFG.ghToken||null}));
   const miss=[];if(!CFG.icKey)miss.push("intervals key");if(!CFG.anthKey)miss.push("Anthropic key");if(!CFG.ghToken)miss.push("GitHub token");
   if(miss.length)toast("Saved. Still missing: "+miss.join(", "));
@@ -676,7 +683,27 @@ async function writeNote(name,obj,date){
   S.events.push(e);parseNotes();return e;
 }
 /* ═══ BOOT ═══ */
+async function keysFromStore(){
+  /* v1.7.3: the GitHub token is the ONLY secret that has to live on the device.
+     Everything else is read from secrets/app-keys.json in the private store, so a
+     rotation is a one-line store edit that propagates to every device by itself. */
+  if(!CFG.ghToken)return false;
+  try{
+    const r=await fetch("https://api.github.com/repos/"+CFG.ghRepo+"/contents/"+encodeURI("secrets/app-keys.json")+"?ref=main&_t="+Date.now(),{headers:ghHead()});
+    if(!r.ok)return false;
+    const d=await r.json();
+    const k=JSON.parse(decodeURIComponent(escape(atob((d.content||"").replace(/\n/g,"")))));
+    let got=false;
+    if(k.athlete){CFG.athlete=k.athlete;got=true}
+    if(k.intervalsKey){CFG.icKey=k.intervalsKey;got=true}
+    if(k.anthropicKey){CFG.anthKey=k.anthropicKey;got=true}
+    if(got){localStorage.setItem("cos_creds",JSON.stringify({a:CFG.athlete,i:CFG.icKey,n:CFG.anthKey,g:CFG.ghToken}));KEYSRC="store"}
+    return got;
+  }catch(_){return false}
+}
+let KEYSRC="device";
 async function boot(){
+  if(CFG.ghToken)await keysFromStore();
   if(needSetup()){document.getElementById("loading").innerHTML="";renderSetup();return}
   try{
     const t=today();
