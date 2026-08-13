@@ -234,7 +234,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note" onclick="openSetup()" style="cursor:pointer">Coach OS v1.7.3 · <span style="color:var(--accent)">keys &amp; setup</span></div>
+  <div class="footer-note" onclick="openSetup()" style="cursor:pointer">Coach OS v1.7.4 · <span style="color:var(--accent)">keys &amp; setup</span></div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -1069,7 +1069,10 @@ async function initMap(){
 }
 /* ═══ RIDE DETAIL ═══ */
 async function openDetail(id){
-  const a=S.acts.find(x=>x.id===id);if(!a)return;
+  /* v1.7.4: compare as strings — intervals ids are strings ("i174568071"), Strava ids
+     are numeric, and a strict === between the two silently returned nothing. */
+  const a=S.acts.find(x=>String(x.id)===String(id));
+  if(!a){toast("Ride not loaded yet — pull to refresh");return}
   document.querySelectorAll("section.tab").forEach(s=>s.classList.toggle("active",s.id==="tab-ridedetail"));
   window.scrollTo({top:0});
   const d=$("tab-ridedetail");
@@ -1240,7 +1243,7 @@ function itemRow(ev,act,d,t){
       act.icu_training_load!=null?["Load",act.icu_training_load]:null,
       act.decoupling!=null?["Decoup",act.decoupling.toFixed(1)+"%"]:null].filter(Boolean);
     h+=`<div class="mini">${cells.map(([l,v])=>`<div><b>${esc(v)}</b>${esc(l)}</div>`).join("")}</div>
-      <button class="ghost" style="margin-top:9px; padding:6px 12px" onclick="openDetail(${act.id})">Open ride →</button>`;
+      <button class="ghost" style="margin-top:9px; padding:6px 12px" onclick="openDetail('${act.id}')">Open ride →</button>`;
   }
   return h+"</div>";
 }
