@@ -234,7 +234,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note" onclick="openSetup()" style="cursor:pointer">Coach OS v1.7.4 · <span style="color:var(--accent)">keys &amp; setup</span></div>
+  <div class="footer-note" onclick="openSetup()" style="cursor:pointer">Coach OS v1.7.5 · <span style="color:var(--accent)">keys &amp; setup</span></div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -261,23 +261,37 @@ const CFG={
 };
 
 /* ═══ CREDS (device-local only: URL fragment or localStorage — never on the server) ═══ */
+let STORAGE_LOST=false;
 (function(){
   try{
-    const h=new URLSearchParams(location.hash.slice(1));
-    if(h.get("i")&&h.get("n")&&h.get("a")){
-      CFG.athlete=h.get("a");CFG.icKey=h.get("i");CFG.anthKey=h.get("n");
-      if(h.get("g")){CFG.ghToken=h.get("g")}
-      else{try{const prev=JSON.parse(localStorage.getItem("cos_creds")||"{}");if(prev.g)CFG.ghToken=prev.g}catch(_){}}
-      localStorage.setItem("cos_creds",JSON.stringify({a:CFG.athlete,i:CFG.icKey,n:CFG.anthKey,g:CFG.ghToken}));
+    /* v1.7.5 — THE BUG THAT CAUSED THE REPEATED RE-ENTRY.
+       A home-screen icon remembers the URL it was created from. If that URL still carried an
+       old credential hash (#a=..&i=..&n=..), the old code re-applied those keys on EVERY launch
+       and overwrote whatever was in storage — so freshly-entered keys were silently replaced by
+       dead ones each time the app was reopened from the icon. Stored creds now ALWAYS win, the
+       hash is only consulted on a device with nothing stored, and the hash is stripped either way. */
+    const stored=JSON.parse(localStorage.getItem("cos_creds")||"null");
+    if(stored){
+      CFG.athlete=stored.a;CFG.icKey=stored.i;CFG.anthKey=stored.n;if(stored.g)CFG.ghToken=stored.g;
     }else{
-      const s=JSON.parse(localStorage.getItem("cos_creds")||"null");
-      if(s){CFG.athlete=s.a;CFG.icKey=s.i;CFG.anthKey=s.n;if(s.g)CFG.ghToken=s.g;}
+      const h=new URLSearchParams(location.hash.slice(1));
+      if(h.get("g"))CFG.ghToken=h.get("g");
+      if(h.get("a"))CFG.athlete=h.get("a");
+      if(h.get("i"))CFG.icKey=h.get("i");
+      if(h.get("n"))CFG.anthKey=h.get("n");
+      if(CFG.ghToken||CFG.icKey)localStorage.setItem("cos_creds",JSON.stringify({a:CFG.athlete,i:CFG.icKey,n:CFG.anthKey,g:CFG.ghToken}));
+      if(localStorage.getItem("cos_seen")&&!CFG.ghToken&&!CFG.icKey)STORAGE_LOST=true;
     }
+    localStorage.setItem("cos_seen","1");
+    if(location.hash)history.replaceState(null,"",location.pathname);
+    /* ask the browser not to evict this origin's storage */
+    if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
   }catch(_){}
 })();
 function needSetup(){return !(CFG.athlete&&CFG.icKey)}
 function renderSetup(edit){
   const L=document.getElementById("loading");L.style.display="block";
+  if(STORAGE_LOST&&!edit){setTimeout(()=>toast("Your saved keys were cleared by the phone — re-enter the GitHub token once"),400)}
   if(edit){document.querySelectorAll("section.tab").forEach(x=>x.classList.remove("active"));document.getElementById("updbar").style.display="none";}
   const is="width:100%; border:0.5px solid var(--border); background:var(--card); border-radius:9px; padding:10px 12px; font-size:16px; color:var(--ink); margin:4px 0 10px";
   const lb="font-size:12px; color:var(--ink-3)";
