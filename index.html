@@ -18,13 +18,13 @@
   --ink:#e8ecf2; --ink-2:#aab4c2; --ink-3:#5c6675;
   --grid:#1a202b; --axis:#2a3342; --border:#1d2430;
   --accent:#2fd98a; --accent-soft:rgba(47,217,138,0.12); --accent-ink:#08130c;
-  --good:#2fd98a; --good-text:#2fd98a; --warn:#f5c53a; --serious:#f2823a; --crit:#e8365f;
+  --good:#34c17a; --good-text:#3fcb85; --good-bg:rgba(52,193,122,0.14); --warn:#f5c53a; --serious:#f2823a; --crit:#e8365f;
   --z1:#5b6b85; --z2:#3d9df2; --z3:#2fd98a; --z4:#f5c53a; --z5:#f2823a; --z6:#e8365f; --z7:#c06df2;
 }
 .leaflet-tile{filter:brightness(0.62) contrast(1.1) saturate(0.75)}
 .leaflet-container{background:#0b0e13}
 *{box-sizing:border-box; margin:0}
-html{-webkit-text-size-adjust:100%}
+html{-webkit-text-size-adjust:100%; font-optical-sizing:auto}
 body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--page); color:var(--ink);
   font-size:15px; line-height:1.5; font-variant-numeric:tabular-nums; padding-bottom:calc(64px + env(safe-area-inset-bottom)); max-width:560px; margin:0 auto}
 header.app{padding:calc(14px + env(safe-area-inset-top)) 16px 10px; display:flex; align-items:baseline; justify-content:space-between; gap:8px}
@@ -34,14 +34,16 @@ header.app .sub{font-size:12.5px; color:var(--ink-3)}
 .block-badge{font-size:10.5px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--serious); background:color-mix(in srgb,var(--serious) 14%,transparent); border:1px solid color-mix(in srgb,var(--serious) 35%,transparent); padding:3px 9px; border-radius:99px; white-space:nowrap}
 main{padding:0 12px}
 section.tab{display:none} section.tab.active{display:block}
-.card{background:var(--card); border:1px solid var(--border); border-radius:16px; padding:14px 15px; margin-bottom:10px}
-.card h2{font-size:10.5px; font-weight:700; color:var(--ink-3); margin-bottom:10px; letter-spacing:0.14em; text-transform:uppercase; display:flex; justify-content:space-between; align-items:baseline; gap:8px}
-.card h2 .when{font-weight:500; color:var(--ink-3); font-size:10px; letter-spacing:0.06em; white-space:nowrap; flex:none}
+.card{background:var(--card); border:1px solid var(--border); border-radius:16px; padding:14px 15px; margin-bottom:10px; box-shadow:0 1px 2px rgba(0,0,0,.30)}
+nav.tabbar::before{content:""; position:absolute; left:0; right:0; top:-20px; height:20px; background:linear-gradient(to top, var(--page), transparent); pointer-events:none}
+.card h2{font-size:13px; font-weight:600; color:var(--ink-3); margin-bottom:10px; letter-spacing:0; text-transform:none; display:flex; justify-content:space-between; align-items:baseline; gap:8px; line-height:1.35}
+.card h2 .ttl{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.card h2 .when{font-weight:400; color:var(--ink-3); font-size:11px; letter-spacing:0.004em; white-space:nowrap; flex:none; opacity:.85}
 .rowline{display:flex; align-items:center; justify-content:space-between; gap:10px}
 .metric-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:8px}
 .metric{background:var(--surface-1); border-radius:10px; padding:9px 10px}
-.metric .l{font-size:11px; color:var(--ink-3)}
-.metric .v{font-size:20px; font-weight:750; margin-top:1px; letter-spacing:-0.01em}
+.metric .l{font-size:11px; color:var(--ink-3); letter-spacing:0.006em}
+.metric .v{font-size:20px; font-weight:750; margin-top:1px; letter-spacing:-0.018em}
 .metric .v small{font-size:11px; font-weight:400; color:var(--ink-3)}
 .metric .d{font-size:10.5px; color:var(--ink-3)}
 .metric .d.up{color:var(--good-text)} .metric .d.dn{color:var(--crit)}
@@ -56,9 +58,10 @@ section.tab{display:none} section.tab.active{display:block}
 .coach-note b{color:var(--ink); font-weight:600}
 .coach-note .dyn{display:block; font-size:10px; color:var(--ink-3); margin-top:5px}
 .pill{display:inline-block; font-size:11px; padding:2px 8px; border-radius:99px; background:var(--surface-1); color:var(--ink-2); border:0.5px solid var(--border); white-space:nowrap}
-.pill.done{color:var(--good-text); border-color:transparent; background:color-mix(in srgb, var(--good) 12%, transparent)}
-.pill.hot{color:var(--crit); border-color:transparent; background:color-mix(in srgb, var(--crit) 13%, transparent)}
-.pill.missed{color:var(--crit); background:color-mix(in srgb, var(--crit) 10%, transparent); border-color:transparent}
+.pill.done{color:var(--good-text); border-color:transparent; background:var(--good-bg)}
+.pill.hot{color:var(--warn); border-color:transparent; background:color-mix(in srgb, var(--warn) 12%, transparent)}
+.pill.missed{color:var(--ink-2); background:var(--surface-1); border-color:var(--border)}
+.pill.done::before,.pill.hot::before,.pill.missed::before{content:""; width:5px; height:5px; border-radius:50%; background:currentColor; display:inline-block; margin-right:5px; vertical-align:1.5px; opacity:.9}
 .pill.key{color:var(--accent); background:var(--accent-soft); border-color:transparent}
 .chart-wrap{margin:4px 0 2px}
 svg{display:block; width:100%; height:auto}
@@ -72,7 +75,7 @@ svg{display:block; width:100%; height:auto}
 #livemap{height:210px; border-radius:10px; z-index:0}
 #livemap svg{width:auto; height:auto; display:inline}
 .mapwrap{position:relative; margin-bottom:2px}
-.mapstats{position:absolute; top:8px; left:8px; z-index:500; background:color-mix(in srgb, var(--card) 88%, transparent); backdrop-filter:blur(4px); border-radius:9px; padding:6px 10px; pointer-events:none}
+.mapstats{position:absolute; top:8px; left:8px; z-index:500; background:color-mix(in srgb, var(--card) 72%, transparent); backdrop-filter:blur(14px) saturate(170%); -webkit-backdrop-filter:blur(14px) saturate(170%); border-radius:9px; padding:6px 10px; pointer-events:none}
 .mapstats .m1{font-size:14px; font-weight:600}
 .mapstats .m2{font-size:10.5px; color:var(--ink-2)}
 .day{display:flex; gap:11px; padding:10px 2px; border-bottom:0.5px solid var(--border); align-items:flex-start}
@@ -91,10 +94,10 @@ svg{display:block; width:100%; height:auto}
 .goal .top{display:flex; justify-content:space-between; align-items:baseline; font-size:13.5px}
 .goal .top b{font-weight:600}
 .goal .top .tgt{color:var(--ink-3); font-size:12px}
-.bar{height:8px; background:var(--surface-1); border-radius:99px; margin-top:6px; overflow:hidden}
+.bar{height:8px; background:color-mix(in srgb,var(--ink-3) 18%,transparent); border-radius:99px; margin-top:6px; overflow:hidden}
 .bar i{display:block; height:100%; border-radius:99px; background:var(--accent)}
 .hero{display:flex; align-items:baseline; gap:8px; margin:2px 0 8px}
-.hero .n{font-size:46px; font-weight:800; letter-spacing:-0.02em; line-height:1}
+.hero .n{font-size:46px; font-weight:800; letter-spacing:-0.03em; line-height:1}
 .hero .u{font-size:14px; color:var(--ink-3)}
 .hero .to{font-size:13px; color:var(--ink-2)}
 .selrow{display:flex; gap:8px; margin-bottom:10px}
@@ -131,14 +134,23 @@ button.ghost{border:0.5px solid var(--border); background:var(--card); color:var
 .msg.coach{background:var(--surface-1); border:0.5px solid var(--border); align-self:flex-start; border-bottom-left-radius:4px}
 .msg.me{background:var(--accent); color:var(--accent-ink); align-self:flex-end; border-bottom-right-radius:4px}
 .msg .who{font-size:10.5px; color:var(--ink-3); margin-bottom:2px; white-space:normal}
-.chips{display:flex; gap:6px; overflow-x:auto; padding:2px 0 8px; -webkit-overflow-scrolling:touch}
+.chips{display:flex; gap:6px; overflow-x:auto; padding:2px 0 8px; -webkit-overflow-scrolling:touch;
+  scroll-snap-type:x proximity; scrollbar-width:none;
+  -webkit-mask-image:linear-gradient(to right,#000 calc(100% - 26px),transparent);
+  mask-image:linear-gradient(to right,#000 calc(100% - 26px),transparent)}
+.chips::-webkit-scrollbar{display:none}
+.chips button{scroll-snap-align:start}
 .chips button{flex:none}
 .inputbar{display:flex; gap:8px}
 .inputbar input{flex:1; border:0.5px solid var(--border); background:var(--card); border-radius:11px; padding:10px 12px; font-size:16px; color:var(--ink); min-width:0}
 .inputbar button{border:none; background:var(--accent); color:var(--accent-ink); border-radius:11px; padding:0 16px; font-size:14px; font-weight:600; cursor:pointer}
+/* v1.8 §16 restraint: `class="ghost"` on the Photo button was being overridden by
+   `.inputbar button`, so two equal-weight accent buttons sat side by side with no
+   primary/secondary hierarchy. One filled action per row. */
+.inputbar button.ghost{background:var(--surface-1); color:var(--ink); border:0.5px solid var(--border); font-weight:500}
 nav.tabbar{position:fixed; bottom:0; left:0; right:0; max-width:560px; margin:0 auto; display:flex;
-  background:color-mix(in srgb, var(--card) 88%, transparent); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
-  border-top:0.5px solid var(--border); padding:6px 2px calc(6px + env(safe-area-inset-bottom)); z-index:600}
+  background:color-mix(in srgb, var(--card) 70%, transparent); backdrop-filter:blur(20px) saturate(180%); -webkit-backdrop-filter:blur(20px) saturate(180%);
+  border-top:1px solid rgba(255,255,255,.09); padding:6px 2px calc(6px + env(safe-area-inset-bottom)); z-index:600}
 nav.tabbar button{flex:1; border:none; background:none; color:var(--ink-3); font-size:10px; padding:4px 0 2px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:2px}
 nav.tabbar button svg{width:21px; height:21px; stroke:currentColor; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round}
 nav.tabbar button.active{color:var(--accent)}
@@ -153,7 +165,7 @@ nav.tabbar button.active{color:var(--accent)}
 .footer-note{font-size:11px; color:var(--ink-3); text-align:center; padding:10px 20px 4px}
 #tab-coach.active{display:flex; flex-direction:column; min-height:calc(100dvh - 150px)}
 #tab-coach .card{display:flex; flex-direction:column; flex:1}
-#tab-coach .chat{flex:1; max-height:none; min-height:180px}
+#tab-coach .chat{flex:1; max-height:none; min-height:180px; justify-content:flex-end}
 body.kb nav.tabbar{display:none}
 #loading{padding:40px 20px; text-align:center; color:var(--ink-3); font-size:14px}
 #ptr{position:fixed; top:calc(env(safe-area-inset-top)); left:0; right:0; text-align:center; font-size:11.5px; color:var(--ink-3); letter-spacing:0.08em; text-transform:uppercase; padding:8px; transform:translateY(-110%); transition:transform .15s; z-index:700; pointer-events:none}
@@ -161,6 +173,33 @@ body.kb nav.tabbar{display:none}
 #errbanner{display:none; background:color-mix(in srgb, var(--crit) 12%, transparent); color:var(--crit); font-size:12.5px; padding:8px 14px; border-radius:10px; margin:0 12px 10px}
 .spin{display:inline-block; width:14px; height:14px; border:2px solid var(--axis); border-top-color:var(--accent); border-radius:50%; animation:sp 0.8s linear infinite; vertical-align:-2px; margin-right:6px}
 @keyframes sp{to{transform:rotate(360deg)}}
+
+/* ── v1.8 §1 Response: feedback on the PRESS, not the release ── */
+button,.cd,.wrow,.agd,.day,.linkrow a,.chips button,.seg button,nav.tabbar button,.footer-note,.ctdn .c,.msg.me{
+  -webkit-tap-highlight-color:transparent;
+  transition:transform 100ms ease-out, opacity 100ms ease-out, background-color 100ms ease-out}
+button:active,.linkrow a:active,.chips button:active,.seg button:active,.ctdn .c:active,.footer-note:active{
+  transform:scale(.97); opacity:.86}
+nav.tabbar button:active{transform:scale(.90); opacity:1}
+.cd:active{transform:scale(.92)}
+.wrow:active,.agd:active,.day:active{transform:scale(.985); background:var(--surface-1); border-radius:10px}
+.set .tick:active{transform:scale(.88)}
+
+/* ── v1.8 §14 Reduced motion / transparency / contrast ── */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important; animation-iteration-count:1!important;
+    transition-duration:.01ms!important; scroll-behavior:auto!important}
+  button:active,.cd:active,.wrow:active,nav.tabbar button:active{transform:none; opacity:.8}
+}
+@media (prefers-reduced-transparency: reduce){
+  nav.tabbar{background:var(--card); backdrop-filter:none; -webkit-backdrop-filter:none}
+  .mapstats{background:var(--card); backdrop-filter:none; -webkit-backdrop-filter:none}
+}
+@media (prefers-contrast: more){
+  .card{background:#0a0d13; border-color:rgba(255,255,255,.30)}
+  .pill{border-color:rgba(255,255,255,.30)}
+  body{--ink-2:#c6ced9; --ink-3:#8b95a5}
+}
 
 /* ── calendar plan (v1.7) ── */
 .calhdr{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px}
@@ -197,7 +236,7 @@ body.kb nav.tabbar{display:none}
 .ctdn .c .l{font-size:10.5px; color:var(--ink-3); white-space:nowrap}
 .wko{padding:11px 0 10px; border-bottom:0.5px solid var(--border)}
 .wko:last-child{border-bottom:none}
-.wko .kd{font-size:10.5px; letter-spacing:0.08em; color:var(--ink-3); text-transform:uppercase}
+.wko .kd{font-size:12px; letter-spacing:0; color:var(--ink-3); text-transform:none; font-weight:600}
 .wko .ti{font-size:15px; font-weight:600; margin-top:1px; display:flex; gap:6px; align-items:center; flex-wrap:wrap}
 .wko .pu{font-size:12.5px; color:var(--ink-2); margin-top:3px}
 .wko details{margin-top:7px}
@@ -234,7 +273,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note" onclick="openSetup()" style="cursor:pointer">Coach OS v<span id="vertag">?</span> · <span style="color:var(--accent)">keys &amp; setup</span></div>
+  <div class="footer-note" onclick="openSetup(event)" style="cursor:pointer">Coach OS v<span id="vertag">?</span> · <span style="color:var(--accent)">keys &amp; setup</span></div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -288,7 +327,80 @@ let STORAGE_LOST=false;
     if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
   }catch(_){}
 })();
-const BUILD="1.7.8";
+
+/* ═══ SPRINGS (v1.8) ═══════════════════════════════════════════════════════
+   apple-design §3/§4: behaviour, not prescribed animation. Analytic solution to
+   the damped-spring ODE, driven by rAF. Two designer parameters, Apple's model:
+     bounce  0    = critically damped (no overshoot)  -> damping ratio 1.0
+     bounce  0.2  = a little overshoot                -> damping ratio 0.8
+     duration     = RESPONSE in seconds, not a fixed duration.
+   INTERRUPTIBLE BY CONSTRUCTION: re-targeting the same key reads the live
+   presentation value AND current velocity and continues from there, so a
+   redirect mid-flight never jumps and never hits a velocity brick wall.
+   No dependency and no network — this app has to work when GitHub doesn't. */
+const _spr=new Map();
+const reduceMotion=()=>{try{return matchMedia("(prefers-reduced-motion: reduce)").matches}catch(_){return false}};
+function springTo(key,to,opts){
+  opts=opts||{};
+  const cur=_spr.get(key);
+  if(cur&&cur.raf)cancelAnimationFrame(cur.raf);
+  const from = opts.from!==undefined ? opts.from : (cur?cur.x:to);
+  const v0   = opts.velocity!==undefined ? opts.velocity : (cur?cur.v:0);
+  const up   = opts.onUpdate||function(){}, fin=opts.onDone;
+  if(reduceMotion()||from===to){ _spr.delete(key); up(to,0); if(fin)fin(); return }
+  const zeta = Math.max(.05, 1-(opts.bounce||0));
+  const w0   = 2*Math.PI/(opts.duration||.4);
+  const A    = from-to;
+  const wd   = w0*Math.sqrt(Math.abs(1-zeta*zeta))||1e-6;
+  const B    = zeta<1 ? (v0+zeta*w0*A)/wd : (v0+w0*A);
+  const eps  = Math.max(.0015, Math.abs(A)*.002);
+  const t0   = performance.now();
+  const st   = {x:from,v:v0,raf:0};
+  _spr.set(key,st);
+  st.raf=requestAnimationFrame(function frame(now){
+    const t=(now-t0)/1000, e=Math.exp(-zeta*w0*t);
+    let x,v;
+    if(zeta<1){
+      const c=Math.cos(wd*t), sn=Math.sin(wd*t);
+      x = to + e*(A*c + B*sn);
+      v = e*(-zeta*w0*(A*c+B*sn) + (-A*wd*sn + B*wd*c));
+    }else{
+      x = to + e*(A + B*t);
+      v = e*(B - w0*(A + B*t));
+    }
+    st.x=x; st.v=v; up(x,v);
+    if(Math.abs(x-to)<eps && Math.abs(v)<eps*12){
+      st.x=to; st.v=0; up(to,0); _spr.delete(key); if(fin)fin(); return;
+    }
+    st.raf=requestAnimationFrame(frame);
+  });
+  return st;
+}
+/* §7 spatial consistency: overlays grow from the control that opened them and
+   shrink back the same way. §12: materialise (blur + scale together), don't fade. */
+function anchorOrigin(el,src){
+  if(!src){el.style.transformOrigin="50% 22%";return}
+  const a=el.getBoundingClientRect(), b=src.getBoundingClientRect();
+  el.style.transformOrigin=((b.left+b.width/2)-a.left)+"px "+((b.top+b.height/2)-a.top)+"px";
+}
+function materialise(el,src,dir,done){
+  if(!el){if(done)done();return}
+  anchorOrigin(el,src);
+  el.style.willChange="opacity,transform,filter";
+  springTo("overlay", dir, {from: dir?0:1, duration:.4, bounce:0,
+    onUpdate(p){
+      el.style.opacity=String(Math.max(0,Math.min(1,p*1.35)));
+      el.style.transform="scale("+(0.93+0.07*p).toFixed(4)+")";
+      el.style.filter="blur("+((1-p)*7).toFixed(2)+"px)";
+    },
+    onDone(){
+      el.style.willChange="";
+      if(dir){el.style.opacity="";el.style.transform="";el.style.filter="";el.style.transformOrigin=""}
+      if(done)done();
+    }});
+}
+
+const BUILD="1.8.0";
 function needSetup(){return !(CFG.athlete&&CFG.icKey)}
 function renderSetup(edit){
   const L=document.getElementById("loading");L.style.display="block";
@@ -325,8 +437,12 @@ function renderSetup(edit){
 }
 function stampVersion(){document.querySelectorAll("#vertag").forEach(e=>e.textContent=BUILD)}
 function toggleAdv(){const d=document.getElementById("advkeys");if(d)d.style.display=d.style.display==="none"?"block":"none"}
-function openSetup(){window.scrollTo(0,0);renderSetup(true)}
-function closeSetup(){const L=document.getElementById("loading");L.style.display="none";L.innerHTML="";showTab("today")}
+let _setupSrc=null;
+function openSetup(ev){_setupSrc=(ev&&ev.currentTarget)||document.querySelector(".footer-note")||null;
+  window.scrollTo(0,0);renderSetup(true);
+  const L=document.getElementById("loading");if(L)requestAnimationFrame(()=>materialise(L,_setupSrc,1));}
+function closeSetup(){const L=document.getElementById("loading");
+  materialise(L,_setupSrc,0,()=>{L.style.display="none";L.innerHTML="";L.style.opacity="";L.style.transform="";L.style.filter="";showTab("today")});}
 function saveSetup(){
   const gv=id=>((document.getElementById(id)||{}).value||"").trim();
   const a=gv("su_a"),i=gv("su_i"),n=gv("su_n");
@@ -782,7 +898,7 @@ async function boot(){
     const b=$("errbanner");b.style.display="block";
     const auth=/\b40[13]\b/.test(err.message||"");
     b.innerHTML="Couldn't reach live data ("+esc(err.message)+"). "+(auth
-      ?'A key was rejected — it has probably been rotated. <button class="ghost" style="margin-top:6px; padding:5px 11px" onclick="openSetup()">Update keys</button>'
+      ?'A key was rejected — it has probably been rotated. <button class="ghost" style="margin-top:6px; padding:5px 11px" onclick="openSetup(event)">Update keys</button>'
       :"Check connection and refresh.");
   }
 }
@@ -927,6 +1043,14 @@ function showTab(t){
   document.querySelectorAll("nav.tabbar button").forEach(x=>x.classList.toggle("active",x.dataset.t===t));
   document.querySelectorAll("section.tab").forEach(s=>s.classList.toggle("active",s.id==="tab-"+t));
   window.scrollTo({top:0});
+  const _sec=document.getElementById("tab-"+t);
+  if(_sec){
+    _sec.style.willChange="opacity,transform";
+    springTo("tab",1,{from:0,duration:.34,bounce:0,
+      onUpdate(p){_sec.style.opacity=String(Math.min(1,p*1.25));
+        _sec.style.transform="translate3d(0,"+((1-p)*9).toFixed(2)+"px,0)"},
+      onDone(){_sec.style.opacity="";_sec.style.transform="";_sec.style.willChange=""}});
+  }
   if(t==="plan"&&window._calsnap){requestAnimationFrame(window._calsnap);setTimeout(window._calsnap,80)}
   if(t==="today"&&S._mapPending)initMap();
 }
@@ -1025,10 +1149,10 @@ function renderToday(){
       <div style="flex:1"><div style="font-size:11.5px; color:var(--ink-3)">Balance so far</div><div style="font-size:20px; font-weight:750; color:${bal<=0?"var(--good-text)":"var(--warn)"}">${bal>0?"+":""}${bal.toLocaleString()}</div><div style="font-size:11px; color:var(--ink-3)">eaten ${Math.round(intake).toLocaleString()} kcal</div></div>
     </div>
     <div style="font-size:11px; color:var(--ink-3)">${esc(cb.note)}${lastW&&(new Date(t0)-new Date(lastW.id))/864e5>4?" · weigh-in overdue — the model is only as good as the scale data":""}</div>
-    <div class="inputbar" style="margin-top:8px"><input id="weighin" inputmode="decimal" placeholder="Log weigh-in (kg)" onkeydown="if(event.key==='Enter')manualWeighIn()"><button class="ghost" style="flex:none" onclick="manualWeighIn()">Save</button></div>
+    <div class="inputbar" style="margin-top:8px"><input id="weighin" inputmode="decimal" placeholder="Log weigh-in (kg)" onkeydown="if(event.key==='Enter')manualWeighIn()"><button style="flex:none" onclick="manualWeighIn()">Save</button></div>
   </div>`})()}
   ${act?`<div class="card">
-    <h2>${actDay===today()?"Today":dayName(actDay)+" "+actDay.slice(8)} · ${esc(act.name)} <span class="when">${esc(act.type)} · done ✓</span></h2>
+    <h2><span class="ttl">${actDay===today()?"Today":dayName(actDay)+" "+actDay.slice(8)} · ${esc(act.name)}</span><span class="when">done ✓</span></h2>
     ${planned?`<div class="rowline" style="margin-bottom:10px">
       <span style="font-size:12.5px; color:var(--ink-2)">Planned: <b>${esc(planned.name.replace(/^.*·\s*/,""))}${planned.icu_training_load?" · load "+planned.icu_training_load:""}</b> → Executed: <b>load ${act.icu_training_load??"–"} · IF ${act.icu_intensity?(act.icu_intensity/100).toFixed(2):"–"}</b></span>
       ${exec.pill}</div>`:""}
@@ -1077,8 +1201,12 @@ function execStatus(act,planned){
 async function loadMaxPower(id){
   try{const st=await ic("/activity/"+id+"/streams?types=watts");
     const wts=(st.find(s=>s.type==="watts")||{}).data||[];
-    const mx=Math.max(...wts.filter(x=>x!=null));
-    if($("maxw"))$("maxw").innerHTML=mx+"<small> W</small>";
+    /* v1.8 BUG FIX: Math.max() of an empty array is -Infinity, and it was being
+       written straight into the DOM. Any ride with no power stream — e.g. the
+       117 km UK ride on a borrowed bike — rendered "Max power -Infinity". */
+    const clean=wts.filter(x=>x!=null);
+    const mx=clean.length?Math.max(...clean):null;
+    if($("maxw"))$("maxw").innerHTML=(mx!=null&&isFinite(mx))?(mx+"<small> W</small>"):'–<small> W</small>';
     S._streams=S._streams||{};S._streams[id]={watts:wts};
   }catch(_){}
 }
@@ -1171,7 +1299,7 @@ async function openDetail(id){
     const g=t=>((st.find(s=>s.type===t)||{}).data||[]);
     const wts=g("watts"),hr=g("heartrate"),vel=g("velocity_smooth"),cad=g("cadence");
     if(!wts.length){$("dstreams").innerHTML='<div style="font-size:12px;color:var(--ink-3)">no power stream for this activity</div>';return}
-    const mx=Math.max(...wts.filter(x=>x!=null));$("dmaxw")&&($("dmaxw").textContent=mx);
+    const mx=Math.max(...wts.filter(x=>x!=null));$("dmaxw")&&($("dmaxw").textContent=(mx!=null&&isFinite(mx))?mx:"–");
     $("dstreams").innerHTML=streamChart(ds(wts).map(Math.round),ds(hr).map(Math.round),ds(vel).map(v=>v*3.6),a.moving_time||wts.length,cad.length?ds(cad).map(Math.round):null);
     const z=[0,0,0,0,0,0,0];wts.forEach(x=>{if(x!=null)z[powerZone(x)-1]++});
     const tot=z.reduce((a,b)=>a+b,0)||1;
@@ -1792,7 +1920,7 @@ function renderFood(){
   const netDef=logged.reduce((s,h)=>s+(h.kcal-h.burn),0);
   $("tab-food").innerHTML=banner+`
   <div class="card"><h2>Today <span class="when">target ${kcalTgt.toLocaleString()} kcal · est burn ${burn.toLocaleString()}</span></h2>
-    <div class="inputbar" style="margin-bottom:10px"><input id="foodinput" placeholder="Log or amend — 'actually 3 burgers', 'remove the sardines'" onkeydown="if(event.key==='Enter')logFood()"><button class="ghost" style="flex:none" onclick="document.getElementById('foodphoto').click()">Photo</button><button onclick="logFood()">Log</button></div>
+    <div class="inputbar" style="margin-bottom:10px"><input id="foodinput" placeholder="Log or amend food…" onkeydown="if(event.key==='Enter')logFood()"><button class="ghost" style="flex:none" onclick="document.getElementById('foodphoto').click()">Photo</button><button onclick="logFood()">Log</button></div>
     <input type="file" id="foodphoto" accept="image/*" style="display:none" onchange="photoFood(this)">
     <div id="foodbusy"></div>
     ${bar("Calories",tot.kcal,kcalTgt,"kcal","var(--accent)")}
