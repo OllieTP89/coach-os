@@ -400,7 +400,38 @@ function materialise(el,src,dir,done){
     }});
 }
 
-const BUILD="1.8.0";
+
+/* ═══ TOKEN VERIFY (v1.8.1) ═══════════════════════════════════════════════
+   A 401 means GitHub could not authenticate the token AT ALL — wrong, revoked
+   or (much more often on a phone) TRUNCATED on paste. The old flow accepted any
+   string matching ^github_pat_[A-Za-z0-9_]{20,}$ and only failed later, opaquely.
+   Now the token is checked against GitHub at the moment it is entered, and the
+   character count is shown, because length is the cheapest tell for a bad paste. */
+const PAT_LEN=93;
+async function verifyGhToken(tok){
+  const n=(tok||"").length;
+  if(!/^github_pat_[A-Za-z0-9_]+$/.test(tok||""))
+    return {ok:false,msg:"That does not look like a GitHub token — it must start github_pat_ and contain no spaces or punctuation."};
+  try{
+    const r=await fetch("https://api.github.com/repos/"+CFG.ghRepo+"?_t="+Date.now(),
+      {headers:{Authorization:"Bearer "+tok,Accept:"application/vnd.github+json"}});
+    if(r.ok) return {ok:true,msg:"Token verified ✓ ("+n+" characters)"};
+    if(r.status===401) return {ok:false,msg:"GitHub rejected it: 401 Bad credentials. You pasted "+n+" characters"+
+      (n<PAT_LEN?" — a full token is "+PAT_LEN+", so this one is CUT SHORT. Copy it again and check nothing was clipped.":
+       n>PAT_LEN?" — that is longer than a token should be ("+PAT_LEN+"); check for a stray character.":
+       " — the right length, so the token itself is wrong or has been revoked.")};
+    if(r.status===403||r.status===404) return {ok:false,msg:"Token authenticates, but it has no access to "+CFG.ghRepo+" (HTTP "+r.status+"). Check the repository and Contents permission on the token."};
+    return {ok:false,msg:"GitHub returned HTTP "+r.status+"."};
+  }catch(e){ return {ok:false,msg:"Could not reach GitHub at all — network, VPN or a content blocker."} }
+}
+function showTokMsg(el,res){
+  if(!el)return;
+  el.style.display="block";
+  el.style.color=res.ok?"var(--good-text)":"var(--warn)";
+  el.textContent=res.msg;
+}
+
+const BUILD="1.8.1";
 function needSetup(){return !(CFG.athlete&&CFG.icKey)}
 function renderSetup(edit){
   const L=document.getElementById("loading");L.style.display="block";
@@ -415,6 +446,8 @@ function renderSetup(edit){
     <div style="font-size:13px; color:var(--ink-2); margin:2px 0 12px">Paste your GitHub data-store token. That is the only thing this app ever needs from you — every other key is read from your private store.</div>
     <div style="${lb}">GitHub data-store token (github_pat_…)</div>
     <input id="su_g2" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" style="${is}" value="${v(CFG.ghToken)}">
+    <div id="tokmsg" style="display:none; font-size:12px; line-height:1.5; margin:-4px 0 10px"></div>
+    <div style="font-size:11.5px;color:var(--ink-3);margin:-4px 0 10px">A full token is ${PAT_LEN} characters. Yours: <b id="tokcount">${(CFG.ghToken||"").length||0}</b></div>
     <button class="primary" onclick="saveSetup()">${edit?"Save &amp; reload":"Save &amp; load my data"}</button>
     ${edit?'<button class="ghost" style="width:100%; margin-top:8px" onclick="closeSetup()">Cancel</button>':""}
     <div style="font-size:11.5px;color:var(--ink-3);margin-top:12px;line-height:1.7">
@@ -443,12 +476,18 @@ function openSetup(ev){_setupSrc=(ev&&ev.currentTarget)||document.querySelector(
   const L=document.getElementById("loading");if(L)requestAnimationFrame(()=>materialise(L,_setupSrc,1));}
 function closeSetup(){const L=document.getElementById("loading");
   materialise(L,_setupSrc,0,()=>{L.style.display="none";L.innerHTML="";L.style.opacity="";L.style.transform="";L.style.filter="";showTab("today")});}
-function saveSetup(){
+async function saveSetup(){
   const gv=id=>((document.getElementById(id)||{}).value||"").trim();
   const a=gv("su_a"),i=gv("su_i"),n=gv("su_n");
   const g=gv("su_g2");
   if(!g&&!CFG.ghToken){toast("GitHub token needed — it is the only one that matters");return}
-  if(g&&!/^github_pat_[A-Za-z0-9_]{20,}$/.test(g)){toast("GitHub token looks wrong — check for a capital G or a stray space");return}
+  if(g&&g!==CFG.ghToken){
+    const el=document.getElementById("tokmsg");
+    showTokMsg(el,{ok:true,msg:"Checking with GitHub…"});
+    const res=await verifyGhToken(g);
+    showTokMsg(el,res);
+    if(!res.ok){toast("Token rejected — see the message under the box");return}
+  }
   const had=!!(CFG.athlete&&CFG.icKey);
   CFG.athlete=a||CFG.athlete;CFG.icKey=i||CFG.icKey;CFG.anthKey=n||CFG.anthKey;CFG.ghToken=g||CFG.ghToken;
   localStorage.setItem("cos_creds",JSON.stringify({a:CFG.athlete,i:CFG.icKey,n:CFG.anthKey,g:CFG.ghToken||null}));
@@ -723,9 +762,12 @@ function liveContext(){
     latestCoachNote:todayNote()?.j||null,
     lastGymLog:gymLogs().slice(-1).map(n=>({exercises:n.j.exercises,date:n.date}))[0]||null});
 }
-function saveGhTok(){
+async function saveGhTok(){
   const g=($("ghtok").value||"").trim();
   if(!g){toast("Paste the token first");return}
+  toast("Checking with GitHub…");
+  const res=await verifyGhToken(g);
+  if(!res.ok){toast(res.msg);return}
   CFG.ghToken=g;
   try{const c=JSON.parse(localStorage.getItem("cos_creds")||"{}");c.g=g;localStorage.setItem("cos_creds",JSON.stringify(c));}catch(_){}
   toast("Connecting…");
