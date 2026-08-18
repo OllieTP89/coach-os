@@ -234,7 +234,7 @@ body.kb nav.tabbar{display:none}
   <section class="tab" id="tab-food"></section>
   <section class="tab" id="tab-gym"></section>
   <section class="tab" id="tab-coach"></section>
-  <div class="footer-note" onclick="openSetup()" style="cursor:pointer">Coach OS v1.7.5 · <span style="color:var(--accent)">keys &amp; setup</span></div>
+  <div class="footer-note" onclick="openSetup()" style="cursor:pointer">Coach OS v<span id="vertag">?</span> · <span style="color:var(--accent)">keys &amp; setup</span></div>
 </main>
 <nav class="tabbar" id="tabbar"></nav>
 <div class="toast" id="toast"></div>
@@ -288,7 +288,7 @@ let STORAGE_LOST=false;
     if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
   }catch(_){}
 })();
-const BUILD="1.7.7";
+const BUILD="1.7.8";
 function needSetup(){return !(CFG.athlete&&CFG.icKey)}
 function renderSetup(edit){
   const L=document.getElementById("loading");L.style.display="block";
@@ -323,6 +323,7 @@ function renderSetup(edit){
     <div style="font-size:11px; color:var(--ink-3); margin-top:12px">${edit?"A rotated key only breaks the app until it is replaced here.":"After it loads, use Safari's Share → Add to Home Screen."}</div>
   </div>`;
 }
+function stampVersion(){document.querySelectorAll("#vertag").forEach(e=>e.textContent=BUILD)}
 function toggleAdv(){const d=document.getElementById("advkeys");if(d)d.style.display=d.style.display==="none"?"block":"none"}
 function openSetup(){window.scrollTo(0,0);renderSetup(true)}
 function closeSetup(){const L=document.getElementById("loading");L.style.display="none";L.innerHTML="";showTab("today")}
@@ -2189,6 +2190,7 @@ let BOOTED_AT=Date.now(), BOOT_DAY=new Date().toDateString();
 document.addEventListener("visibilitychange",()=>{
   if(document.visibilityState==="visible"&&(new Date().toDateString()!==BOOT_DAY||Date.now()-BOOTED_AT>45*60*1000))location.reload();
 });
+stampVersion();
 boot();
 </script>
 </body>
