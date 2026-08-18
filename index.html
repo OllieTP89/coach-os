@@ -288,7 +288,7 @@ let STORAGE_LOST=false;
     if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
   }catch(_){}
 })();
-const BUILD="1.7.6";
+const BUILD="1.7.7";
 function needSetup(){return !(CFG.athlete&&CFG.icKey)}
 function renderSetup(edit){
   const L=document.getElementById("loading");L.style.display="block";
@@ -299,36 +299,37 @@ function renderSetup(edit){
   const v=x=>x?esc(x):"";
   L.innerHTML=`
   <div class="card" style="text-align:left">
-    <h2 style="color:var(--ink); font-size:15px">${edit?"Keys &amp; setup":"One-time setup"} <span style="font-weight:400;font-size:11px;color:var(--ink-3)">build ${BUILD}</span></h2>
-    <div style="font-size:13px; color:var(--ink-2); margin-bottom:12px">${edit?"Change any key that has been rotated, then save. Stored on THIS device only — nothing is sent anywhere except intervals.icu, Anthropic and GitHub directly.":"Paste your keys — they're saved on THIS device only and never sent anywhere except intervals.icu and Anthropic directly."}</div>
-    <div style="font-size:12.5px;line-height:1.6;margin:0 0 14px;padding:10px 11px;border-radius:8px;background:rgba(127,209,255,.10);border:0.5px solid rgba(127,209,255,.35)">
-      <b>Only the GitHub token is required.</b> Everything else is read from your private store, so if a key is rotated I can change it there and this phone picks it up on its own — you will not have to type anything.
-      ${KEYSRC==="store"?'<div style="margin-top:6px;color:var(--accent)">Keys currently loaded FROM THE STORE ✓</div>':''}
-    </div>
-    <div style="${lb}">GitHub data-store token (github_pat_…) — THE ONE THAT MATTERS</div>
-    <input id="su_g2" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" style="${is}" value="${v(CFG.ghToken)}">
-    <div style="${lb}">intervals.icu athlete ID (looks like i123456)</div>
-    <input id="su_a" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" style="${is}" placeholder="i…" value="${v(CFG.athlete)}">
-    <div style="${lb}">intervals.icu API key (Settings → Developer)</div>
-    <input id="su_i" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" style="${is}" value="${v(CFG.icKey)}">
-    <div style="${lb}">Anthropic API key (sk-ant-…)</div>
-    <input id="su_n" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" style="${is}" value="${v(CFG.anthKey)}">
+    <h2 style="color:var(--ink); font-size:15px">${edit?"Keys &amp; setup":"Setup"} <span style="font-weight:400;font-size:11px;color:var(--ink-3)">build ${BUILD}</span></h2>
+    <div style="font-size:13px; color:var(--ink-2); margin:2px 0 12px">Paste your GitHub data-store token. That is the only thing this app ever needs from you — every other key is read from your private store.</div>
     <div style="${lb}">GitHub data-store token (github_pat_…)</div>
-    <input id="su_g" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" style="${is}" value="${v(CFG.ghToken)}">
-    <div style="font-size:12px;margin:10px 0 4px;padding:9px 10px;border-radius:8px;background:rgba(255,255,255,.04);line-height:1.7">
-      ${[["Athlete ID",CFG.athlete],["intervals key",CFG.icKey],["Anthropic key",CFG.anthKey],["GitHub token",CFG.ghToken]].map(([k,val])=>
-        '<div>'+(val?'<span style="color:var(--good,#39d98a)">stored</span>':'<span style="color:var(--warn,#ffbd2e)">MISSING</span>')+' &nbsp;'+k+'</div>').join("")}
-    </div>
+    <input id="su_g2" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" style="${is}" value="${v(CFG.ghToken)}">
     <button class="primary" onclick="saveSetup()">${edit?"Save &amp; reload":"Save &amp; load my data"}</button>
     ${edit?'<button class="ghost" style="width:100%; margin-top:8px" onclick="closeSetup()">Cancel</button>':""}
-    <div style="font-size:11px; color:var(--ink-3); margin-top:10px">${edit?"A rotated key only breaks the app until it is replaced here — you never need a rescue link again.":"After it loads, use Safari's Share → Add to Home Screen. Keys persist on-device; if the phone ever forgets them, this screen simply reappears."}</div>
+    <div style="font-size:11.5px;color:var(--ink-3);margin-top:12px;line-height:1.7">
+      ${KEYSRC==="store"?'<span style="color:var(--accent)">Other keys loaded from the store ✓</span><br>':''}
+      ${[["intervals key",CFG.icKey],["Anthropic key",CFG.anthKey]].map(([k,val])=>
+        (val?'<span style="color:var(--good,#39d98a)">✓</span> '+k:'<span style="color:var(--warn,#ffbd2e)">missing</span> '+k)).join(" &nbsp;·&nbsp; ")}
+    </div>
+    <div style="font-size:11.5px;color:var(--ink-3);margin-top:10px"><a href="#" onclick="toggleAdv();return false" style="color:var(--ink-2)">Enter keys by hand instead →</a></div>
+    <div id="advkeys" style="display:none;margin-top:12px;padding-top:12px;border-top:0.5px solid var(--border)">
+      <div style="${lb}">intervals.icu athlete ID (looks like i123456)</div>
+      <input id="su_a" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" style="${is}" placeholder="i…" value="${v(CFG.athlete)}">
+      <div style="${lb}">intervals.icu API key (Settings → Developer)</div>
+      <input id="su_i" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" style="${is}" value="${v(CFG.icKey)}">
+      <div style="${lb}">Anthropic API key (sk-ant-…)</div>
+      <input id="su_n" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" style="${is}" value="${v(CFG.anthKey)}">
+      <div style="font-size:11px;color:var(--ink-3)">These are normally unnecessary — they live in secrets/app-keys.json in your store.</div>
+    </div>
+    <div style="font-size:11px; color:var(--ink-3); margin-top:12px">${edit?"A rotated key only breaks the app until it is replaced here.":"After it loads, use Safari's Share → Add to Home Screen."}</div>
   </div>`;
 }
+function toggleAdv(){const d=document.getElementById("advkeys");if(d)d.style.display=d.style.display==="none"?"block":"none"}
 function openSetup(){window.scrollTo(0,0);renderSetup(true)}
 function closeSetup(){const L=document.getElementById("loading");L.style.display="none";L.innerHTML="";showTab("today")}
 function saveSetup(){
-  const a=document.getElementById("su_a").value.trim(),i=document.getElementById("su_i").value.trim(),n=document.getElementById("su_n").value.trim();
-  const g2=(document.getElementById("su_g2")||{}).value||"", g=(g2.trim()||document.getElementById("su_g").value.trim());
+  const gv=id=>((document.getElementById(id)||{}).value||"").trim();
+  const a=gv("su_a"),i=gv("su_i"),n=gv("su_n");
+  const g=gv("su_g2");
   if(!g&&!CFG.ghToken){toast("GitHub token needed — it is the only one that matters");return}
   if(g&&!/^github_pat_[A-Za-z0-9_]{20,}$/.test(g)){toast("GitHub token looks wrong — check for a capital G or a stray space");return}
   const had=!!(CFG.athlete&&CFG.icKey);
@@ -686,7 +687,8 @@ async function loadStore(){
     const what=e.status?("HTTP "+e.status):(e.netfail?"blocked before it left the phone":(e.name==="SyntaxError"?"corrupt JSON":(e.name||"error")));
     errs.push(what+" on "+paths[k][1]);
   });
-  S.storeErr=errs.length?errs.join(" | "):null;
+  const kinds=[...new Set(errs.map(x=>x.split(" on ")[0]))];
+  S.storeErr=!errs.length?null:(kinds.length===1?(kinds[0]+(errs.length===paths.length?" (every store file)":" on "+errs[0].split(" on ")[1])):errs.slice(0,2).join(" | "));
   if(!errs.length){S.storeOffline=null;storeSnapshot();return}
   if(res[0].status!=="rejected"){S.storeOffline=null;storeSnapshot();return}
   let snap=null; try{snap=JSON.parse(localStorage.getItem("cos_store")||"null")}catch(_){}
