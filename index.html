@@ -288,6 +288,7 @@ let STORAGE_LOST=false;
     if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
   }catch(_){}
 })();
+const BUILD="1.7.6";
 function needSetup(){return !(CFG.athlete&&CFG.icKey)}
 function renderSetup(edit){
   const L=document.getElementById("loading");L.style.display="block";
@@ -298,7 +299,7 @@ function renderSetup(edit){
   const v=x=>x?esc(x):"";
   L.innerHTML=`
   <div class="card" style="text-align:left">
-    <h2 style="color:var(--ink); font-size:15px">${edit?"Keys &amp; setup":"One-time setup"}</h2>
+    <h2 style="color:var(--ink); font-size:15px">${edit?"Keys &amp; setup":"One-time setup"} <span style="font-weight:400;font-size:11px;color:var(--ink-3)">build ${BUILD}</span></h2>
     <div style="font-size:13px; color:var(--ink-2); margin-bottom:12px">${edit?"Change any key that has been rotated, then save. Stored on THIS device only — nothing is sent anywhere except intervals.icu, Anthropic and GitHub directly.":"Paste your keys — they're saved on THIS device only and never sent anywhere except intervals.icu and Anthropic directly."}</div>
     <div style="font-size:12.5px;line-height:1.6;margin:0 0 14px;padding:10px 11px;border-radius:8px;background:rgba(127,209,255,.10);border:0.5px solid rgba(127,209,255,.35)">
       <b>Only the GitHub token is required.</b> Everything else is read from your private store, so if a key is rotated I can change it there and this phone picks it up on its own — you will not have to type anything.
@@ -610,7 +611,7 @@ function saveGhTok(){
   CFG.ghToken=g;
   try{const c=JSON.parse(localStorage.getItem("cos_creds")||"{}");c.g=g;localStorage.setItem("cos_creds",JSON.stringify(c));}catch(_){}
   toast("Connecting…");
-  loadStore().then(()=>{renderFood();renderGym();renderCoach();toast(S.storeOffline?"Still can't reach the store — check the token":"Data store connected ✓")});
+  loadStore().then(()=>{renderFood();renderGym();renderCoach();toast(S.storeOffline?("Still failing: "+(S.storeErr||"unknown")):"Data store connected ✓")});
 }
 function setPlanView(v){S.planView=v;renderPlan()}
 async function retryTallies(){
@@ -641,9 +642,13 @@ function pastConvos(){
 const storeYear=()=>today().slice(0,4);
 function ghHead(){return {Authorization:"Bearer "+CFG.ghToken,Accept:"application/vnd.github+json","Content-Type":"application/json"}}
 async function ghGet(path){
-  const r=await fetch("https://api.github.com/repos/"+CFG.ghRepo+"/contents/"+encodeURI(path)+"?ref=main&_t="+Date.now(),{headers:ghHead()});
+  /* v1.7.6: every failure used to collapse into one unfalsifiable message. Carry the
+     real HTTP status and the path on the error so the UI can name the actual fault. */
+  let r;
+  try{ r=await fetch("https://api.github.com/repos/"+CFG.ghRepo+"/contents/"+encodeURI(path)+"?ref=main&_t="+Date.now(),{headers:ghHead()}); }
+  catch(e){ const x=new Error("network"); x.netfail=true; x.path=path; throw x; }
   if(r.status===404)return null;
-  if(!r.ok)throw new Error("store read "+r.status);
+  if(!r.ok){ const x=new Error("store read "+r.status); x.status=r.status; x.path=path; throw x; }
   const d=await r.json();
   return {sha:d.sha,json:JSON.parse(decodeURIComponent(escape(atob((d.content||"").replace(/\n/g,"")))))};
 }
@@ -669,14 +674,23 @@ function storeSnapshot(){try{localStorage.setItem("cos_store",JSON.stringify({ts
 async function loadStore(){
   S.store={nutrition:{v:1,entries:[]},strength:{v:1,entries:[]},chat:{v:1,entries:[]}};
   if(!CFG.ghToken){S.storeOffline="no-token";return}
-  try{
-    const [n,g,c,rv,pf]=await Promise.all([ghGet("logs/nutrition/"+storeYear()+".json"),ghGet("logs/strength/"+storeYear()+".json"),ghGet("logs/chat/"+storeYear()+".json"),ghGet("logs/recovery/"+storeYear()+".json"),ghGet("nutrition-prefs.json")]);
-    if(n)S.store.nutrition=n.json; if(g)S.store.strength=g.json; if(c)S.store.chat=c.json; if(rv)S.store.recovery=rv.json; if(pf)S.store.prefs=pf.json;
-    S.storeOffline=null;storeSnapshot();
-  }catch(e){
-    const snap=JSON.parse(localStorage.getItem("cos_store")||"null");
-    if(snap){S.store=snap.store;S.storeOffline="snapshot"}else{S.storeOffline="unreachable"}
-  }
+  /* v1.7.6: was Promise.all - ONE bad file blanked the whole store and reported
+     "can't reach", which is why this stayed undiagnosable. allSettled keeps whatever
+     loaded and records exactly what failed, with the status code. */
+  const paths=[["nutrition","logs/nutrition/"+storeYear()+".json"],["strength","logs/strength/"+storeYear()+".json"],["chat","logs/chat/"+storeYear()+".json"],["recovery","logs/recovery/"+storeYear()+".json"],["prefs","nutrition-prefs.json"]];
+  const res=await Promise.allSettled(paths.map(x=>ghGet(x[1])));
+  const errs=[];
+  res.forEach((r,k)=>{
+    if(r.status==="fulfilled"){ if(r.value)S.store[paths[k][0]]=r.value.json; return }
+    const e=r.reason||{};
+    const what=e.status?("HTTP "+e.status):(e.netfail?"blocked before it left the phone":(e.name==="SyntaxError"?"corrupt JSON":(e.name||"error")));
+    errs.push(what+" on "+paths[k][1]);
+  });
+  S.storeErr=errs.length?errs.join(" | "):null;
+  if(!errs.length){S.storeOffline=null;storeSnapshot();return}
+  if(res[0].status!=="rejected"){S.storeOffline=null;storeSnapshot();return}
+  let snap=null; try{snap=JSON.parse(localStorage.getItem("cos_store")||"null")}catch(_){}
+  if(snap){S.store=snap.store;S.storeOffline="snapshot"}else{S.storeOffline="unreachable"}
 }
 const uid=()=>"e"+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 /* notes helpers */
@@ -1751,7 +1765,7 @@ function powerCurveSvg(pc){
 /* ═══ FOOD ═══ */
 function renderFood(){
   const t=today();
-  const banner=S.storeOffline==="no-token"?'<div class="card" style="border-color:var(--warn)"><b style="font-size:13.5px">Data store not connected</b><div style="font-size:12.5px;color:var(--ink-2);margin:4px 0 8px">Paste your GitHub data-store token (github_pat_…) — saved on this device only.</div><input id="ghtok" placeholder="github_pat_…" style="width:100%;border:0.5px solid var(--border);background:var(--card);border-radius:9px;padding:10px 12px;font-size:16px;color:var(--ink);margin-bottom:8px"><button class="primary" onclick="saveGhTok()">Connect data store</button></div>':S.storeOffline?'<div class="card" style="border-color:var(--warn)"><b style="font-size:13.5px">'+(S.storeOffline==="no-token"?"No data-store token — add it in keys &amp; setup (4th box).":S.storeOffline==="snapshot"?"Can\'t reach the store — showing your last local copy.":"Can\'t reach the store.")+'</b><div style="font-size:12.5px;color:var(--ink-2);margin-top:4px">'+(S.storeOffline==="no-token"?"Nothing you log will be saved until the token is in.":"Logging will fail until this clears.")+'</div></div>':"";
+  const banner=S.storeOffline==="no-token"?'<div class="card" style="border-color:var(--warn)"><b style="font-size:13.5px">Data store not connected</b><div style="font-size:12.5px;color:var(--ink-2);margin:4px 0 8px">Paste your GitHub data-store token (github_pat_…) — saved on this device only.</div><input id="ghtok" placeholder="github_pat_…" style="width:100%;border:0.5px solid var(--border);background:var(--card);border-radius:9px;padding:10px 12px;font-size:16px;color:var(--ink);margin-bottom:8px"><button class="primary" onclick="saveGhTok()">Connect data store</button></div>':S.storeOffline?'<div class="card" style="border-color:var(--warn)"><b style="font-size:13.5px">'+(S.storeOffline==="no-token"?"No data-store token — add it in keys &amp; setup (4th box).":S.storeOffline==="snapshot"?"Can\'t reach the store — showing your last local copy.":"Can\'t reach the store."+" [build "+BUILD+"]"+(S.storeErr?" — "+S.storeErr:""))+'</b><div style="font-size:12.5px;color:var(--ink-2);margin-top:4px">'+(S.storeOffline==="no-token"?"Nothing you log will be saved until the token is in.":"Logging will fail until this clears.")+'</div></div>':"";
   const logs=foodNotes(t);
   const tot=logs.reduce((a,n)=>{const e=n.j.est||{};return{kcal:a.kcal+(e.kcal||0),p:a.p+(e.p||0),c:a.c+(e.c||0),f:a.f+(e.f||0),fib:a.fib+(e.fib||0)}},{kcal:0,p:0,c:0,f:0,fib:0});
   const evToday=S.events.filter(e=>e.category==="WORKOUT"&&e.start_date_local?.slice(0,10)===t);
